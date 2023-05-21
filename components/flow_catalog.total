@@ -1,0 +1,355 @@
+<script component>
+    const  {AsciiTable3, AlignmentEnum} = require('ascii-table3')
+
+    exports.name = 'Catalog';
+    exports.group = 'Flow';
+    exports.icon = 'ti ti-bags-shopping';
+    exports.version = '1';
+    exports.config = {
+        name: "catalog" ,
+        items: [],
+        currency : "${{total}}",
+        taxes : 0,
+        hasCode : false,
+        code: [
+            "// data {Object};",
+            "// send('default', data); // or simply send(data); which uses the first output",
+            "// send('1', data); // to send a specific menu"
+        ].join("\n")
+    };
+    exports.inputs = [];
+    exports.outputs = [{ id: 'order', name: 'Order' }];
+    exports.meta = {readonly: true, remove: false};
+    const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+
+    exports.make = function(instance, config) {
+
+        var init = null;
+        var templates = {
+            "CURRENCY" : ""
+        } 
+        instance.message = async function($) {
+            var order = $?.order?.products ? $?.order : ($?.data?.order?.products ? $?.data?.order : undefined);
+            if(!order){
+                return instance.throw("Invalid order");
+            }
+            var session = new SharedMemory($);
+            await session.ready;
+            if(!(session.sessionId && session.reply && typeof session.reply == "function")){
+                return instance.throw("Invalid message");
+            }
+            var _init;
+            try {
+                order.subtotal = 0;
+                order.total = 0;
+                order.taxes = 0;
+                order.invalid = [];
+                var table = 
+                    new AsciiTable3();
+                // table.setStyle("ascii-dots");
+                table.setWidths([20, 8]);
+                table.setAlignRight(2);
+                order.products = order.products.map(product=>{
+                    var p = config.items.find(item=>product.name.replace(/[ ]+/g,' ').toUpperCase() == item.name.replace(/[ ]+/g,' ').toUpperCase());
+                    if(p){
+                        product.price = parseFloat(`${p.montant}`);
+                        product.subtotal = product.price * parseFloat(`${product.quantity}`);
+                        product.taxes = config.taxes < 1 ? (product.subtotal * parseFloat(config.taxes)) : (product.subtotal + parseFloat(config.taxes));
+                        product.total = product.subtotal + product.taxes;
+                        product.total0 = product.total.format(0);
+                        product.subtotal0 = product.subtotal.format(0);
+                        order.subtotal += product.subtotal;
+                        order.total += product.total;
+                        order.taxes += product.taxes;
+                        product.currency = templates['CURRENCY'] ? templates['CURRENCY']({
+                            data : session.data ?? {},
+                            session : session,
+                            variables : {...instance.main.variables2, ...instance.main.variables},
+                            total : product.total.currency(),
+                            subtotal : product.subtotal.currency(),
+                            total0 : product.total0,
+                            subtotal0 : product.subtotal0,
+                            taxes : product.taxes.currency(),
+                            price : product.price
+                        }) : product.total.currency();
+                        table.addRow(product.name,product.total)
+                        return product;
+                    }else{
+                        order.invalid.push(product);
+                    }
+                }).filter(x=>x);
+                order.total0 = order.total.format(0);
+                order.subtotal0 = order.subtotal.format(0);
+                order.currency = templates['CURRENCY'] ? templates['CURRENCY']({
+                    data : session.data ?? {},
+                    session : session,
+                    variables : {...instance.main.variables2, ...instance.main.variables},
+                    total : order.total.currency(),
+                    subtotal : order.subtotal.currency(),
+                    total0 : order.total0,
+                    subtotal0 : order.subtotal0,
+                    taxes : order.taxes.currency(),
+                    price : order.price
+                }) : order.total.currency();
+                order.receipt = order.products.length? table.toString() : `
+┌────────────────────┐
+│        😞           │
+└────────────────────┘
+                `.trim();
+                if(init && typeof init == "function"){
+                    _init = await init(
+                        order,
+                        session.data,
+                        session,
+                        {...instance.main.variables2, ...instance.main.variables}
+                    );
+                }
+            } catch (error) {
+                if(error == "EXIT"){
+                    return; // stop function
+                }
+                console.error(error)
+                instance.throw(error);
+                return ;
+            }
+            await session.setItem("orders",{
+                ...(session.orders ?? {}),
+                [config.name] : order
+            });
+            // build order and receipt
+            instance.send("order", {
+                ...session.data,
+                order
+            });
+        };
+
+        instance.configure = function() {
+            if(config.code.trim()){
+                init = new Function("order, data, session , variables",`return (async ()=>{;\n${config.code};\n})();`);
+            }else
+                init = null;
+            if(config.currency){
+                templates['CURRENCY'] = Tangular.compile(`${config.currency}`.trim());
+            }else{
+                templates['CURRENCY'] = ""
+            }
+            config.taxes = parseFloat(config.taxes ?? 0);
+            instance.save();
+        };
+
+        instance.configure();
+    };
+
+</script>
+
+<readme>
+# readme
+</readme>
+
+<settings>
+    <div class="padding">
+        <div class="row m">
+            <div class="col-md-8 m">
+                <ui-component name="input" path="?.name" config="autoexec:setCatalogName;placeholder:name;maxlength:20;required:1;monospace:1">Catalog Name</ui-component>
+                <ui-bind path="?.name" class="help" config="html:value ? `Accessible in template and in code via <b>session.orders.${value}</b>` : ''"></ui-bind>
+            </div>
+            <div class="col-md-4 m">
+                <ui-component name="input" path="?.taxes" config="type:number;placeholder:Taxes;">Taxes</ui-component>
+            </div>
+            <div class="col-md-9 m">
+                <ui-component name="input" path="?.currency" config="type:text;placeholder:Currency template;required:1;monospace:1">Currency template</ui-component>
+            </div>
+            <div class="col-md-3">
+                <ui-component style="margin-top: 25px;" name="input" path="?.hasCode" config="type:checkbox">With Code</ui-component>
+            </div>
+        </div>
+        <ui-bind path="?.hasCode" config="show" class="hidden block m">
+            <div class="ui-input-label">Javascript Code:</div>
+            <ui-component name="codemirror" path="?.code" config="type:javascript;height:250;parent:auto;margin:30;tabs:true;trim:true" class="m"></ui-component>
+        </ui-bind>
+        <div class="caption m">
+            <div class="toolbar">
+                <nav>
+                    <button class="exec" data-exec="tmp_model.add"><i class="ti ti-plus-circle"></i></button>
+                </nav>
+            </div>
+            <label>Items</label>
+        </div>
+        <div class="message message-alert">Set quantities to <b>-1</b> for items with unlimited quantities, Max length for name is 20 chars</div>
+        <ui-bind path="?.items" config="template:figure;show:value && value.length" class="fields m block">
+            <script type="text/html">
+                {{ foreach m in value }}
+                <figure data-id="{{ m.id }}" class="row m">
+                    <div class="col-md-2 default">
+                        <label class="ui-input-label">Price</label>
+                        <div class="edit key monospace b" data-edit="exec:tmp_model.montant;selectall:1">{{ m.montant }}</div>
+                    </div>
+                    <!-- <div class="col-md-2 default">
+                        <label class="ui-input-label">Quantity</label>
+                        <div class="edit key monospace b" data-edit="exec:tmp_model.quantity;selectall:1">{{ m.quantity }}</div>
+                    </div> -->
+                    <div class="col-md-6 name">
+                        <label class="ui-input-label">Name</label>
+                        <div class="edit key" data-edit="exec:tmp_model.name;maxlength:20;required:1">{{ m.name }}</div>
+                    </div>
+                    <div class="col-md-2 controls" style="margin-top: 10px;margin-right:0px;text-align: right;">
+                        <span class="exec" data-exec="tmp_model.move" data-type="up" title="Move up"><i class="ti ti-arrow-up"></i></span>
+                        <span class="exec" data-exec="tmp_model.move" data-type="down" title="Move down"><i class="ti ti-arrow-down"></i></span>
+                        <span class="exec" data-exec="tmp_model.rem" title="Remove"><i class="ti ti-trash red"></i></span>
+                    </div>
+                </figure>
+                {{ end }}
+            </script>
+        </ui-bind>
+    </div>
+</settings>
+
+<script>
+    function setCatalogName(opt, next) {
+        opt.value = opt.value.replace(/(;|\s|,)/g, '').trim();
+        next(opt.value ? true : opt.html);
+    };
+    TOUCH(function(exports, init) {
+        var itemKey = 'items';
+        exports.settings = function(meta){
+            var tmp = W.tmp_model;
+
+			if (!tmp) {
+
+				tmp = {};
+				tmp.add = function(el) {
+					var scope = el.scope();
+					scope.push(itemKey, {
+                        id: Math.random().toString(36).split(".")[1], 
+                        name: 'Item '+Math.random().toString(36).split(".")[1].substring(0,4).toUpperCase(), 
+                        montant: 0, 
+                        quantity : -1
+                    });
+					scope.change('*');
+				};
+
+				tmp.rem = function(el) {
+					var id = ATTRD(el);
+					var scope = el.scope();
+					var model = scope.get();
+					var index = model[itemKey].findIndex('id', id);
+					model[itemKey].splice(index, 1);
+					scope.update(itemKey);
+					scope.change('*');
+				};
+
+				tmp.move = function(el) {
+
+					var scope = el.scope();
+					var id = ATTRD(el);
+					var container = el.closest('figure');
+					var items = scope.get()[itemKey];
+					var index = items.findIndex('id', id);
+					var is = false;
+					var isup = el.attrd('type') === 'up';
+
+					if (isup) {
+						if (index > 0) {
+							var a = items[index];
+							items[index] = items[index - 1];
+							items[index - 1] = a;
+							is = true;
+						}
+					} else {
+						if (items && items.length && index <= items.length - 2) {
+							var a = items[index];
+							items[index] = items[index + 1];
+							items[index + 1] = a;
+							is = true;
+						}
+					}
+
+					if (is) {
+						NODEMOVE(container, isup);
+						scope.change('*');
+						container.aclass('ismoved').rclass('ismoved', 500);
+					}
+				};
+                
+                /// set item value
+                tmp.name = function(opt, next) {
+					opt.value = opt.value.trim();
+					if (opt.value) {
+						var scope = opt.element.scope();
+						var id = ATTRD(opt.element);
+						var item = scope.get()[itemKey].findItem('id', id);
+						item.name = opt.value;
+						scope.change('*');
+						next(true);
+					} else
+						next(opt.html);
+				};
+
+				tmp.montant = function(opt, next) {
+					opt.value = opt.value.replace(/[^\d,]/g,"").trim();
+                    opt.value = `${isNaN(parseFloat(opt.value)) ? 0 : opt.value}`;
+					if (opt.value) {
+						var scope = opt.element.scope();
+						var id = ATTRD(opt.element);
+						var item = scope.get()[itemKey].findItem('id', id);
+						item.montant = parseFloat(opt.value);
+						scope.change('*');
+						next(true);
+					} else
+						next(opt.html);
+				};
+
+                tmp.quantity = function(opt, next) {
+                    opt.value = opt.value.replace(/[^\d-]/g,"").trim();
+                    opt.value = parseInt(`${isNaN(parseInt(opt.value)) ? 0 : opt.value}`);
+                    opt.value =  opt.value >=-1 ? opt.value : -1;
+                    if (opt.value >=-1) {
+                        var scope = opt.element.scope();
+                        var id = ATTRD(opt.element);
+                        var item = scope.get()[itemKey].findItem('id', id);
+                        item.quantity = opt.value;
+                        item.unlimited = opt.value == -1;
+                        scope.change('*');
+                        next(true);
+                    } else
+                        next(opt.html);
+                };
+				W.tmp_model = tmp;
+			}
+        }
+        exports.configure = function(config, isInit) {
+            UPD('flow.data');
+        }
+    });
+</script>
+
+<style>
+    .CLASS footer { padding: 10px; font-size: 12px; }
+
+    .button-add { height: 24px; font-size: 12px; border: 1px solid #E0E0E0; border-radius: var(--radius); color: #000; background-color: #f0f0f0; margin: 0; padding: 2px 10px; }
+    .button-add:hover { background-color: #F8F8F8; }
+    .button-add:active { background-color: #E0E0E0; }
+
+    .ui-dark .button-add { border-color: #404040; color: #FFF; background-color: #202020; }
+    .ui-dark .button-add:hover { background-color: #303030; }
+    .ui-dark .button-add:active { background-color: #404040; }
+
+    .switch-input-group { clear: both; height: 36px; }
+    .switch-input-group > ui-component:first-child .ui-input-control { border-right: none; border-bottom-right-radius: 0; border-top-right-radius: 0; width: 120px; float: left; background-color: #f0f0f0; }
+    .switch-input-group > ui-component:last-child .ui-input-control { border-bottom-left-radius: 0; border-top-left-radius: 0; float: left; width: calc(100% - 120px); }
+    .switch-input-group.wide > ui-component:first-child .ui-input-control { width: 200px; }
+    .switch-input-group.wide > ui-component:last-child .ui-input-control { width: calc(100% - 200px); }
+    .items { border: 1px solid #e0e0e0; padding: 8px; border-radius: 3px; }
+    .menu { border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px; margin-bottom:4px; }
+    .menu > .row > .col-md-1 { height: 36px; line-height: 36px; }
+    .switch-help { background-color: #e7e7ff; border-radius: 3px; padding: 4px; }
+    .switch-thead { padding: 8px; margin-bottom:4px; }
+</style>
+
+<body>
+	<header>
+		<i class="ICON"></i>
+        <ui-bind path="CONFIG.hasCode" config="show" class="hidden"><span class="ti ti-code"></span></ui-bind>
+        <ui-bind path="CONFIG.name" config="text:value ? value : 'NAME'"></ui-bind>
+	</header>
+</body>

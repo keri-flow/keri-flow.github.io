@@ -1,0 +1,122 @@
+<script component>
+
+	exports.name = 'Notify';
+	exports.group = 'Triggers';
+	exports.icon = 'ti ti-map-pin';
+	exports.author = 'Total.js';
+	exports.version = '1';
+	exports.config = { method: 'all', send: 'all' };
+	exports.outputs = [{ id: 'output', name: 'Output' }];
+  exports.meta = {readonly: true, remove: false};
+
+	exports.make = function(instance, config) {
+		instance.notify = function(data) {
+			if (config.method === 'all' || config.method === data.method && instance.id === data.id) {
+
+				var cookie = data.headers.cookie || '';
+				var arr = cookie.split(';');
+
+				data.cookies = {};
+
+				for (var i = 0; i < arr.length; i++) {
+					var line = arr[i].trim();
+					var index = line.indexOf('=');
+					if (index !== -1)
+						data.cookies[line.substring(0, index)] = decodeURIComponent(line.substring(index + 1));
+				}
+
+				if (config.send !== 'all')
+					data = data[config.send];
+
+				instance.send('output', data);
+			}
+		};
+	};
+
+</script>
+
+<readme>
+This component captures data on the `/notify/` endpoint.
+
+__Output data__:
+
+```js
+{
+	"method": String,
+	"query": Object,
+	"body": Object,
+	"headers": Object,
+	"cookies": Object,
+	"url": String,
+	"ip": String
+}
+```
+</readme>
+
+<style>
+	.CLASS footer { padding: 5px 8px; font-size: 11px; color: #777; }
+</style>
+
+<settings>
+	<div class="padding">
+		<div class="message message-alert row" style="display: flex;" endpoint>
+      <div class="col-md-4 pointer exec" data-exec="?/tmpnotifycopy" style="
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+        width: 56px !important;
+        padding: 0;
+      ">
+        <span class="mr5" style="font-size: 24px;margin: 0;"><i style="margin: 0;" class="ti ti-copy"></i></span>
+      </div>
+      <div class="col-md-9" style="margin: 0;">
+        <ui-bind path="%url" config="template">
+          <script type="text/html">
+            <div>Endpoint</div>
+            <div class="help">
+              <b link="{{ value }}">{{ value }}</b>
+            </div>
+          </script>
+        </ui-bind>
+      </div>
+    </div>
+	</div>
+	<div class="padding">
+		<div class="grid-2">
+			<div class="m">
+				<ui-component name="input" path="?.method" config="dirsource:all|All supported HTTP methods,GET|GET,POST|POST" class="m">HTTP Method</ui-component>
+			</div>
+			<div class="m">
+				<ui-component name="input" path="?.send" config="dirsource:all|Everything,query|Query arguments,body|Payload,headers|Headers,cookies|Cookies">Send to output</ui-component>
+			</div>
+		</div>
+	</div>
+</settings>
+
+<body>
+	<header>
+		<i class="ICON"></i>NAME
+	</header>
+	<footer class="exec pointer" data-exec="/tmpnotifycopy" endpoint>
+		<div><span class="mr5"><i class="ti ti-copy"></i></span> Copy Endpoint</div>
+		<ui-bind path="flow.head" class="help" config="template">
+			<script type="text/html">
+				<b style="display:none" link="{{ value.proxyurl }}/notify/{{ value.id }}-UID/" >/notify/{{ value.id }}-UID/</b>
+			</script>
+		</ui-bind>
+	</footer>
+</body>
+
+<script>
+  TOUCH(function(exports, reInit) {
+		exports.settings = function(meta) {
+      SET('%url', `${ flow.head.proxyurl }/notify/${ flow.head.id }-${exports.id}/`.replace(/\/+/g,"/").trim());
+    }
+		exports.tmpnotifycopy = function(el) {
+			var url = el.find('b').attr('link') ?? el.closest('[endpoint]').find('b').attr('link');
+			SETTER('clipboard/copy', url.replace(/\/+/g,"/").trim());
+			SETTER('notify/success', 'Endpoint Copied');
+		};
+  })
+</script>

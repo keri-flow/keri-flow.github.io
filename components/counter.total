@@ -1,0 +1,45 @@
+<script component>
+
+	exports.name = 'Counter';
+	exports.group = 'Debug';
+	exports.version = '1';
+	exports.icon = 'ti ti-calculator';
+	exports.author = 'Total.js';
+	exports.config = {};
+	exports.inputs = [{ id: 'input', name: 'Input' }];
+  exports.meta = {readonly: true, remove: false};
+
+	exports.make = function(instance) {
+
+		var count = 0;
+
+		instance.message = function($) {
+			count++;
+			instance.status(count);
+			$.destroy();
+		};
+
+		instance.trigger = function(data) {
+			count = 0;
+			instance.status(count);
+		};
+
+	};
+
+</script>
+
+<style>
+	.CLASS .status { font-size: 35px; margin: 0; padding: 0 10px 10px; font-weight: bold; text-align: center; }
+</style>
+
+<readme>
+The component counts incoming messages.
+</readme>
+
+<body>
+	<header>
+		<button class="exec button" data-exec="FUNC.trigger">Reset</button>
+		<i class="ICON"></i>NAME
+	</header>
+	<footer is="is-footer" path="STATUS" config="text:(value || 0).format(0)" class="status"></footer>
+</body>

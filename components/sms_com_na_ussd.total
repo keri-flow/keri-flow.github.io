@@ -1,0 +1,589 @@
+<script component>
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const mime = require('mime-types');
+    var isElectron = (typeof process !== 'undefined' && typeof process.versions === 'object' && !!process.versions.electron);
+    var databasesPath = path.join(process.env.KERI_FLOW_USER_DATA_DIR ? process.env.KERI_FLOW_USER_DATA_DIR : PATH.root(), 'databases');
+    var pref = JSON.parse(require('fs').readFileSync(PATH.join(databasesPath, "preferences.json")));
+    const { default: makeWASocket, delay, extractMessageContent, makeInMemoryStore, useMultiFileAuthState, Browsers, DisconnectReason, downloadMediaMessage } = require('@adiwajshing/baileys');
+
+    path.root = dir => dir ? PATH.join(PATH.root(), dir) : PATH.root();
+    path.mkdir = (dir, mode = null) => fs.mkdirSync(dir, { recursive: true, ...((typeof mode == "string" && /^(r|w|x){1,3}$/) || typeof mode == "number" ? { mode } : {}) });
+
+    const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+
+    exports.private = true;
+    exports.name = 'Namibia USSD';
+    exports.icon = 'ti ti-mobile';
+    exports.author = 'Oshimin Labs';
+    exports.version = '2';
+    exports.group = 'Connector';
+    exports.config = {
+        url: '',
+        timeout: 5000,
+        offlineMessage: "Service offline",
+        notFountMessage: "Service not found",
+        outputs: []
+    };
+    exports.inputs = [];
+    exports.outputs = [];
+
+    exports.npm = [];
+    exports.meta = { remove: false, readonly: true };
+
+    var client;
+
+
+    function getMessage(message, options) {
+        if (options && typeof options == "object") {
+            options = arrayToObject(options);
+            return `${message.trim()}\n${Object.keys(options).map((key, index) => `${key}. ${options[key]}`.trim()).join('\n')}`.trim();
+        } else {
+            return message.trim();
+        }
+    }
+    function arrayToObject(options) {
+        if (options && typeof options == "object" && !Array.isArray(options)) {
+            return options;
+        } else if (options && typeof options == "object" && Array.isArray(options)) {
+            return options.reduce((ret, value, index) => {
+                ret[index + 1] = value;
+                return ret;
+            }, {});
+        } else {
+            return {};
+        }
+    }
+    
+    exports.make = function (instance, config) {
+        var prev = null;
+        var ttl = {};
+
+
+        instance.configure = async function () {
+            if (prev) {
+                prev && prev.get && prev.get.remove();
+                prev && prev.post && prev.post.remove();
+                prev = null;
+                instance.status({ online: false });
+            }
+            config.url = config.url ? config.url : ("/"+UID());
+            if (instance.main.proxypath && config.url) {
+                config.proxypath = instance.main.proxypath;
+                var flags = [config.timeout];
+                prev = {};
+                // console.log("USSD HTTP REGISTER", config.url);
+                prev.get = ROUTE('GET ' + config.url, function () {
+                    var ctrl = this;
+                    ctrl.content(`
+<?xml version="1.0" encoding="UTF-8"?>
+<ussd>
+      <type>T</type>
+      <msg>MSG</msg>
+      <premium>
+            <cost>C</cost>
+            <ref>R</ref>
+      </premium>
+</ussd>
+            `.trim(), "text/xml");
+                });
+                prev.post = ROUTE('POST ' + config.url, async function () {
+                    var ctrl = this;
+                    var data = {};
+                    var ussd;
+
+                    function replyBuilder(text) {
+                        console.log("CONVERT", text);
+                        text = `
+<?xml version="1.0" encoding="UTF-8"?>
+<ussd>
+	<msisdn>${ussd.msisdn}</msisdn>
+	<sessionid>${ussd.sessionid}</sessionid>
+	<type>${/^END/.test(text) ? 3 : 2}</type>
+	<msg>${text.replace(/^(CON|END)/, "").trim()}</msg>
+	<premium>
+		<cost>0</cost>
+		<ref>${GUID()}</ref>
+	</premium>
+</ussd>
+									`.trim();
+                        ctrl.content(text, "text/xml");
+                    }
+                    try {
+                        //parse xml
+                        ussd = ctrl.req.bodydata.toString("utf8").parseXML();
+                        console.log(ussd);
+                        // format xml to right object
+                        // 0|ussd  | {
+                        // 0|ussd  |   'ussd.msisdn': 'M',
+                        // 0|ussd  |   'ussd.sessionid': 'S',
+                        // 0|ussd  |   'ussd.type': 'T',
+                        // 0|ussd  |   'ussd.msg': 'MSG'
+                        // 0|ussd  | }
+                        // force keys to lower case and remove ussd.
+                        ussd = Object.keys(ussd).reduce((ret, key) => {
+                            ret[key.toLowerCase().replace(/^ussd\./, "")] = ussd[key];
+                            return ret;
+                        }, {});
+                        if (
+                            ussd.hasOwnProperty('msisdn') &&
+                            ussd.hasOwnProperty('sessionid') &&
+                            ussd.hasOwnProperty('type') &&
+                            ussd.hasOwnProperty('msg')
+                        ) {
+                            data = {
+                                /** @type {number} */
+                                reqType: parseFloat(ussd.type),
+                                /** @type {string} */
+                                id: ussd.sessionid,
+                                /** @type {boolean} */
+                                fromMe: false,
+                                /** @type {string} */
+                                to: ussd.type == 1 ? ussd.msg : "",
+                                /** @type {string} */
+                                from: ussd.msisdn,
+                                /** @type {string} */
+                                pushName: ussd.msisdn,
+                                /** @type {string | null} */
+                                group: null,
+                                /** @type {boolean} */
+                                isGroup: false,
+                                /** @type {boolean} */
+                                isStatus: false,
+                                /** @type {boolean} */
+                                isUser: true,
+                                /** @type {string} */
+                                body: ussd.msg,
+                                /** @type {string} */
+                                provider: "sms.com.na",
+                                /** @type {string} */
+                                sessionId: ussd.sessionid
+                            };
+                        }
+                        // console.log("POST ROUTE " + config.url, data);
+                        var session = new SharedMemory({
+                            sessionId: `${data.sessionId}`,
+                            data
+                        }, data);
+                        await session.ready;
+                        if(data.reqType == 3 || data.reqType == 4 || data.reqType == 10){
+                            ctrl.content(`
+<?xml version="1.0" encoding="UTF-8"?>
+<ussd>
+    <msisdn>${ussd.msisdn}</msisdn>
+	<sessionid>${ussd.sessionid}</sessionid>
+    <type>2</type>
+    <msg></msg>
+    <premium>
+        <cost>0</cost>
+        <ref>${GUID()}</ref>
+    </premium>
+</ussd>
+            `.trim(), "text/xml");
+                            session.bye();
+                            return;
+                        }
+
+                        /// Core Functions
+                        //// sayWelcome : welcome message
+                        await session.setItem("sayWelcome", async function (message) {
+                            // no welcome on USSD
+                        });
+                        //// securePin : ask a pin to a user
+                        await session.setItem("securePin", async function ({
+                            message,
+                            returnMessage,
+                            urlMessage,
+                            mediaUrl,
+                            TTL,
+                            timeout,
+                        }) { // normal ask
+                            return new Promise(async (okFn, errFn) => {
+                                await session.setItem("input", async function (response) {
+                                    console.log(response);
+                                    await session.setItem("input", null);  // clear answer handler
+                                    okFn(`${response}`.trim());
+                                });
+                                replyBuilder("CON "+message);
+                            });
+                        });
+                        //// confirm : send a message and wait for a confirmation
+                        await session.setItem("confirm", function ({
+                            message,
+                            confirmText,
+                            yesValue,
+                            noValue,
+                            yesText,
+                            noText,
+                            mediaUrl
+                        }) {
+                            return new Promise(async (okFn, errFn) => {
+                                var btnMsg;
+                                yesText = yesText || "yes";
+                                noText = noText || "no";
+                                confirmText = confirmText || `Reply *${yesText}* or *${noText}*`;
+                                await session.setItem("input", async function (response) {
+                                    //btnMsg.delete(true);
+                                    var clean = (str) => str.toString().replace(/[ ]+/g, " ").toUpperCase();
+                                    var res = clean(response) == clean("1") || clean(response) == clean(yesValue) || clean(response) == clean(yesText);
+                                    await session.setItem("input", null);  // clear answer handler
+                                    okFn(res ? yesValue : noValue);
+                                });
+                                replyBuilder("CON "+getMessage(`${message}\n\n1. ${yesText}\n2. ${noText}`));
+                            });
+                        });
+                        //// message : send message to someone
+                        await session.setItem("message", async function (to, message, mediaUrl) {
+                            // no action
+                        });
+                        //// reply : send reply to user
+                        await session.setItem("reply", async function (message, ask, options, mediaUrl) {
+                            replyBuilder((ask ? "CON" : "END")+" "+getMessage(message, options));
+                        });
+                        // handle close session 
+                        await session.onBye((force, session) => {
+                            // no action on Close session
+                        })
+
+                        var instanceToSendTheAnswer = session.input ?? null, response = null;
+                        if (instanceToSendTheAnswer && typeof instanceToSendTheAnswer == "function") {
+                            console.log("REPLY", data);
+                            await instanceToSendTheAnswer(data.body);
+                        } else {
+                            var msg = {
+                                sessionId: session.sessionId,
+                                data: session.data,
+                                response
+                            };
+                            var output;
+                            console.log("SESSION TO",session.to);
+                            config.outputs.some(id => {
+                                var target = instance.main.meta.flow[id];
+                            console.log("TEST TARGET",!target , !target.config.name , [session.isUser , !target.config.user]);
+                                if (!target || !target.config.name || (session.isUser && !target.config.user)) return false;
+                                console.log("TEST TARGET",!target , !target.config.name , [session.isUser , !target.config.user]);
+                                var ret = target.config.name.trim().toUpperCase() == session.to.trim().toUpperCase();
+                                if (ret) {
+                                    output = target;
+                                }
+                                return ret;
+                            })
+
+                            if (output) {
+                                // read online stats
+                                var user;
+                                try {
+                                    var pref = JSON.parse(fs.readFileSync(PATH.join(databasesPath, "preferences.json")));
+                                    user = pref.user;
+                                    // if(!user) throw new Error("Can't get User Information");
+                                } catch (error) {
+                                }
+                                if (!user) return instance.throw("Error when read the connected user");
+                                var opt = {};
+                                opt.url = `${pref.mayaHost}/check_user`;
+                                opt.body = JSON.stringify({
+                                    "login": pref.user.login,
+                                    "id": pref.user._id
+                                });
+                                opt.method = "POST";
+                                opt.type = "json";
+                                opt.dnscache = true;
+                                opt.insecure = true;
+                                var sessions = 0;
+                                opt.callback = function (err, response) {
+                                    if (!err && response && response.status == 200) {
+                                        var user = response.body;
+                                        user = user.parseJSON();
+                                        if (user) {
+                                            sessions = user.sessions;
+                                        }
+                                    }
+                                    if (sessions > 0) {
+                                        output.message(instance.newmessage(msg));
+                                    } else
+                                        instance.throw("No session aviable, please recharge");
+                                };
+                                REQUEST(opt);
+                            } else {
+                                session.bye(true);
+                                replyBuilder(`END ${config.notFountMessage}`);
+                            }
+                        }
+
+                    } catch (error) {
+                        console.log("ERROR",error);
+                        return ctrl.error("Processing error");
+                    }
+                }, flags, 5120);
+                instance.status({ online: true });
+            } else {
+                instance.status({ online: false });
+            }
+        };
+
+        instance.close = function () {
+            // remove urls
+            if (prev) {
+                prev && prev.get && prev.get.remove();
+                prev && prev.post && prev.post.remove();
+                prev = null;
+                instance.status({ online: false });
+            }
+        };
+
+        instance.configure();
+    };
+
+</script>
+
+<readme>
+This component registers an HTTP Route for USSD services and sends request data next. It stores `controller` instance in the `message.refs.controller` property. You must respond to the REST response component.
+
+< __IMPORTANT__:<br>The component works only with a defined Proxy endpoint in the Flow settings.
+< __URL__:<br>The URL must be relative to the defined Proxy endpoint. So if the endpoint is `/users/` and the desired address is `http://example.com/users/find` then the value must be `/find`
+</readme>
+
+<settings>
+    <div class="padding">
+        <div class="row" data-bind="flow.head.worker__hide:!value || flow.head.origin.length < flow.head.proxyurl.length">
+			<div class="col-md-12 m">
+				<div class="message message-error"><b><i class="ti ti-warning"></i>No proxy endpoint defined.</b><br>This component will not work until then. Please go to main screen, open settings of this FlowStream instance and set the Endpoint.</div>
+			</div>
+		</div>
+		<div class="row">
+			<div class="col-md-8 m">
+				<ui-component name="input" path="?.url" config="required:1">Relative URL address</ui-component>
+				<div class="help">Relative path to: <ui-bind path="flow.head.proxyurl" config="text:value?value:window.location.origin"></ui-bind></div>
+			</div>
+			<div class="col-md-4 m">
+				<ui-component name="input" path="?.timeout" config="required:1;type:number">Timeout</ui-component>
+			</div>
+            <div class="col-md-12 m">
+                <ui-component name="input" path="?.notFountMessage" config="type:text;monospace:1;required:1">Not found service message</ui-component>
+            </div>
+		</div>
+        <div class="row m">
+            <section class="padding m">
+                <ui-component name="input" path="%debugsearch" config="type:search;placeholder:Search keyword"
+                    class="col-md-12 m"></ui-component>
+                <ui-component name="search" path="%debugsearch" config="selector:figure" class="col-md-12 m">
+                    <ui-component name="selection" path="?.outputs" config="datasource:%route_components;click:figure">
+                        <ui-bind path="%route_components" config="template" class="block listing2 small">
+                            <script type="text/html">
+                                {{ foreach m in value }}
+                                <figure data-search="{{ m.id }} {{m.name}} {{ if m.note }} {{ m.note }}{{ fi }}">
+                                    <section style="margin: 5px;">
+                                        <span class="selection" data-id="{{ m.id }}"><i class="ti ti-check"></i></span> {{m.name}} {{ if m.note }}<span class="gray ml10">{{ m.note }}</span>{{ fi }}
+                                    </section>
+                                </figure>
+                                {{ end }}
+                            </script>
+                        </ui-bind>
+                    </ui-component>
+                </ui-component>
+            </section>
+        </div>
+    </div>
+</settings>
+
+<style>
+    .CLASS footer {
+        padding: 10px;
+    }
+
+    .CLASS footer div ui-bind {
+        font-family: var(--monospace);
+    }
+
+    .CLASS footer .method {
+        background-color: var(--color);
+        color: #FFF;
+        padding: 2px 3px;
+        border-radius: var(--radius);
+    }
+
+    .CLASS header .ti.online,
+    .CLASS header .ti.offline {
+        background: #e91e63;
+        border-radius: 50%;
+        color: white;
+        padding: 2px;
+        font-size: 100%;
+    }
+
+    .CLASS header .ti.online {
+        background: #4caf50;
+    }
+
+    .CLASS footer span.title {
+        font-size: 11px;
+        color: #777;
+    }
+
+    .CLASS footer span.message {
+        font-size: 13px;
+        text-transform: capitalize;
+        font-variant: small-caps;
+        color: #414141;
+    }
+
+    .CLASS footer span.error {
+        font-size: 13px;
+        text-transform: capitalize;
+        font-variant: small-caps;
+        color: rgb(150, 28, 28);
+    }
+</style>
+
+<script>
+
+    // Client-side script
+    // Optional, you can remove it
+
+    // A custom helper for the component instances
+    // The method below captures each instance of this component
+    TOUCH(function (exports, reInit) {
+
+        var name = exports.name + ' --> ' + exports.id;
+        var url;
+
+        exports.settings = function (meta) {
+
+            var arr = [];
+
+            for (var key in flow.data) {
+                var tmp = flow.data[key];
+                if (tmp.Component && tmp.Component.id == "flow_route.total")
+                    arr.push({
+                        id: key,
+                        name: tmp.config.name ? tmp.config.name : tmp.Component.name,
+                        note: tmp.note,
+                        group: false,
+                        groupid: null,
+                        user: false,
+                    });
+            }
+
+            SET('%route_components', arr);
+
+            var orders = [{
+                id: "",
+                name: "No Catalog"
+            }];
+
+            for (var key in flow.data) {
+                var tmp = flow.data[key];
+                if (tmp.Component && tmp.config.name && tmp.Component.name === 'Catalog' && key !== exports.id) {
+                    orders.push({ id: key, name: tmp.config.name });
+                }
+            }
+
+            SET('%out_components', orders);
+        };
+        exports.emulator = function (show) {
+            if(url){
+                var serviceCode;
+                FUNC.ussd_simulator({
+                    title : "Namibia USSD",
+                    endpoint : CONFIG.proxypath+ CONFIG.url,
+                    reqFormater : (data, received)=>{
+                        if(received){
+                            var xmlDoc = new DOMParser().parseFromString(data,"text/xml");
+                            return (xmlDoc.querySelector("type").innerHTML == 2 ? "CON" : "END")+" "+xmlDoc.querySelector("msg").innerHTML;
+                        };
+                        serviceCode = serviceCode ?? data.text;
+                        console.log(data);
+                        return {
+                            data: `
+    <?xml version="1.0" encoding="UTF-8"?>
+    <ussd>
+        <msisdn>${data.phoneNumber}</msisdn>
+        <sessionid>${data.sessionId}</sessionid>
+        <type>${!data.text ? 1 : 2}</type>
+        <msg>${!data.text ? data.serviceCode : data.text.split("*").pop().replace(/#$/,"")}</msg>
+    </ussd>
+                `.trim(),
+                            contentType: "text/xml",
+                            dataType: "text",
+                        };
+                    }
+                })
+            }else{
+                SETTER('notify/warning', 'Component is not configured');
+            }
+        };
+        exports.tmpnotifycopy = function(el) {
+			SETTER('clipboard/copy', url);
+			SETTER('notify/success', 'Endpoint Copied');
+		};
+        exports.configure = function (config, isInit) {
+            config.url = config.url ? config.url : ("/"+Math.random().toString(36).split(".")[1].substring(0,7));
+            url = `${ flow.head.proxyurl }/${config.url}`.replace(/\/+/g,"/").trim()
+            // Triggered when the config is changed
+            UPD('flow.data');
+        };
+
+        exports.status = function (status, isInit) {
+            // Triggered when the status is changed
+        };
+
+        exports.note = function (note, isInit) {
+            // Triggered when the note is changed
+        };
+
+        exports.variables = function (variables) {
+            // Triggered when the variables are changed
+        };
+
+        exports.variables2 = function (variables) {
+            // Triggered when the variables2 are changed
+        };
+
+        exports.close = function () {
+            // Triggered when the instance is closing due to some reasons
+        };
+
+    });
+</script>
+
+<body>
+    <header>
+        <i class="ICON"></i>
+        <ui-bind path="STATUS" config="template">
+            {{ if value?.clientInfo }}
+            <ui-bind path="STATUS.clientInfo" config="text:value ? ('+'+value) : 'NAME'"></ui-bind>
+            {{else}}
+            <ui-bind path="CONFIG.name" config="text:value ? value : 'NAME'"></ui-bind>
+            {{ fi }}
+        </ui-bind>
+    </header>
+    <footer>
+        <ui-bind path="STATUS" config="template" style="
+            flex:1;
+            flex-direction: row;
+            display: flex;
+        "
+        >
+            {{ if value?.online }}
+                <ui-bind class="exec link pointer" data-exec="/emulator" style="
+                    width: 20px;
+                ">
+                    <a is="is-a"><span class="ti ti-mobile"></span></a>
+                </ui-bind>
+                <ui-bind path="STATUS" config="template" style="
+                    flex:1;
+                ">
+                    <ui-bind path="CONFIG.url" config="show" class="hidden block exec pointer" style="
+                        flex:1;
+                        text-align: right;
+                    " data-exec="/tmpnotifycopy">
+                        <span class="mr5"><i class="ti ti-copy"></i></span>
+                    </ui-bind>
+                </ui-bind>
+            {{else}}
+                <span>Offline</span>
+            {{fi}}
+        </ui-bind>
+    </footer>
+</body>

@@ -1,0 +1,344 @@
+<script component>
+    var QS = require('querystringify');
+	exports.name = 'Pvit';
+	exports.group = 'Payments';
+	exports.version = '1';
+	exports.icon = 'ti ti-coins';
+	exports.author = 'Badinga Ulrich';
+	exports.config = {
+        "inProgress": "Transaction processing, please wait...",
+        "apiKey" : "",
+        "timeout": 10000,
+        'phone': '',
+        'amount': '',
+        "code_marchand" : "",
+        "code_marchandMC" : "",
+        "montant" : 0
+    };
+	exports.inputs = [{ id: 'input', name: '<i class="ti ti-envelope"></i> Message' }];
+	exports.outputs = [
+        { id: 'success', name: '<span style="display: block;text-align: right;color: #2196F3;">Success <i class="ti ti-check-circle"></i> </span>' }, 
+        { id: 'fail', name: '<span style="display: block;text-align: right;color: #F44336;">Error <i class="ti ti-exclamation-circle"></i></span>' },
+    ];
+    exports.meta = { remove : false, readonly: true };
+
+
+    const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+
+    var endpoints = {
+        //URL https://mypvitapi.pro/api/pvit-secure-full-api-v3.kk
+        Payment : "https://mypvitapi.pro/api/pvit-secure-full-api-v3.kk",
+    };
+
+    var getValueFromPath = function(path,data) {
+        path = (Array.isArray(path) ? path : path.toString().split('.'))
+            .filter(x=>typeof x == "string" && x);
+        // if(path.length == 0 || typeof data != 'object') return data;
+        var obj = data;
+        for (var m of path) {
+            obj = obj[m];
+            if (typeof obj != "object" && obj === undefined)
+                return null;
+        }
+        return obj;
+    };
+    var setValueFromPath = function(path,data,value) {
+        path = (Array.isArray(path) ? path : path.toString().split('.')).filter(x=>typeof x == "string" && x);
+        if(path.length == 0 || typeof data != 'object') return value;
+        var obj = data;
+        for (var m of path.slice(0,path.length-1)) {
+            if (typeof obj[m] != "object"){
+                obj[m] = {};
+            }
+            obj = obj[m]
+        }
+        obj[path.pop()] = value;
+        return data;
+    };
+
+	exports.make = function(instance, config) {
+        var templates = {
+            phone : ()=>"",
+            amount : ()=>"",
+            code_marchand : ()=>"",
+            apiKey : ()=>"",
+        }
+		var cache = [];
+        var rootUrl = "";
+        try {
+            rootUrl = this.main.metadata.origin+(`/${this.main.metadata.rootUrl}/${this.main.metadata.proxypath}/${config.url}`).replace(/\/+/g,"/");
+        } catch (error) {}
+
+        var models = {
+            Payment : ($,config,session)=>{
+                var refLength = 13;
+                var id = (Date.now().toString(36)+Math.random().toString(36).split(".")[1]).substr(0,refLength).padEnd(refLength,"0");
+                var num = $.variables(templates.phone({
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    }), true).replace(/[^\d]/, "");
+                var phone = num.replace(/^((\+|00)?241|0)/, "0");
+                return {
+                    "code_marchand" : $.variables(templates["code_marchand"+(/^06/.test(phone)? "MC" :"")]({
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    }), true),
+                    "id": id,
+                    "reference": id,
+                    "reference_marchand": id,
+                    "token": $.variables(templates.apiKey({
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    }), true),
+                    "numero_client": phone,
+                    "montant": parseFloat($.variables(templates.amount({
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    }), true)),
+                    "action" :1,
+                    "service" : "REST",
+                    "country": "GA",
+                    "operateur": /^06/.test(phone)? "MC" : "AM",
+                    "agent" : "KeriFlow",
+                };
+            }
+        };
+        instance.configure = function() {
+            ["phone", "amount", "code_marchand","code_marchandMC", "apiKey"].map(key=>{
+                if(config[key]){
+                    templates[key] = Tangular.compile(config[key]);
+                }else{
+                    templates[key] = ()=>"";
+                }
+            });
+        }
+		instance.message = async function($) {
+            
+            if( 
+                !config.apiKey || 
+                !config.phone || 
+                !config.amount ||
+                !config.code_marchand
+            ) return instance.throw("Component not configured");
+
+            var session = new SharedMemory($);
+            await session.ready;
+            if(!(session.sessionId && session.reply && typeof session.reply == "function")){
+                return instance.throw("Invalid message");
+            }
+            await session.setItem("input", async function (response) {
+                try{
+                    session.reply(config.inProgress,true);
+                }catch(e){
+                    throw e;
+                }
+            });
+
+            var send = async (err, doc=null)=>{
+                await session.setItem("input",null);  // clear answer handler
+                $.data.payment = {
+                    err,doc
+                };
+                $.send(err ? 'fail' : 'success');
+            }
+			var opt = {};
+
+			opt.headers = {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            };
+            opt.method = "POST";
+			opt.url = endpoints.Payment;
+			opt.type = 'urlencoded';
+            let body;
+            try{
+                body = models.Payment(
+                    $,
+                    config,
+                    session
+                );
+                opt.body= QS.stringify({
+                    code_marchand : body.code_marchand,
+                    montant : body.montant,
+                    reference_marchand : body.reference_marchand,
+                    numero_client : body.numero_client,
+                    token : body.token,
+                    action : 1,
+                    service : body.service,
+                    operateur : body.operateur,
+                    agent : body.agent
+                });
+            }catch(e){
+                send("ERROR :: "+(e.stack || e))
+                return;
+            }
+			opt.dnscache = true;
+            opt.insecure = true;
+            opt.nocookies = true;
+            // opt.xhr = true;
+			if (config.timeout)
+                opt.timeout = config.timeout;
+            var unique_id = body.reference_marchand;
+            
+			opt.callback = function(err, response) {
+                if (response.status != 200 || err) {
+                    send(response.status != 200  ? "Request failed" : (err + ''))
+					return;
+				}
+                try {
+                    body = response.body.parseXML();
+                    if(!body["REPONSE.STATUT"]){
+                        throw "Invalid response";
+                    }
+                } catch (err) {
+                    send(err + '');
+					return;
+                }
+                                
+                if(body["REPONSE.STATUT"] == 200){
+                        var i = 0;
+                        var check = (async request=>{
+                            if(i++>12){ // wait for 2 mins
+                                send('Timeout');
+                                return;
+                            }
+                            await session.setItem("paiementCheck", i);
+                            setTimeout(()=>{
+                                var opt = {};
+                                opt.headers = {
+                                    'Accept': 'application/json'
+                                };
+                                opt.method = "GET";
+                                opt.url = endpoints.Payment;
+                                opt.type = 'urlencoded';
+                                opt.dnscache = true;
+                                opt.insecure = true;
+                                opt.nocookies = true;
+                                var b = models.Payment(
+                                    $,
+                                    config,
+                                    session
+                                );
+                                opt.body= QS.stringify({
+                                    code_marchand : b.code_marchand,
+                                    reference_marchand : b.reference_marchand,
+                                    token : b.token,
+                                    action : 3,
+                                    service : b.service,
+                                    operateur : b.operateur
+                                });
+                                opt.callback = function(err, response) {
+                                    if (response.status == 200) {
+                                        var res = response.body;
+                                        try {
+                                            body = response.body.parseXML();
+                                            if(!body["REPONSE.STATUT"]){
+                                                throw "Invalid response";
+                                            }
+                                            if(body["REPONSE.STATUT"] == 200 && !body["REPONSE.AMOUNT"]){
+                                                check()
+                                            }else if(body["REPONSE.STATUT"] == 200){
+                                                send(null,body)
+                                            }else{
+                                                send(body["REPONSE.MESSAGE"],body);
+                                            }
+                                        } catch (err) {
+                                            send(""+err);
+                                            return;
+                                        }
+                                    }else{
+                                        check();
+                                    }
+                                }
+                                REQUEST(opt);
+                            },10e3) // check all 10s
+                        }).bind(null, body);
+                        check();
+                }else{
+                    send(body["REPONSE.MESSAGE"],body);
+                }
+			};
+            body.status = "WAIT";
+            body.create = Date.now();
+            body.time = 0;
+            REQUEST(opt);
+            session.reply(config.inProgress,true);
+		};
+        instance.configure();
+	};
+
+</script>
+
+<style>
+	.CLASS .status { font-size: 12px; margin: 0; padding: 10px; overflow-wrap: break-word; }
+	.CLASS .status span { padding: 2px 3px; border-radius: var(--radius); color: #FFF; }
+</style>
+
+<readme>
+The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa.
+
+</readme>
+
+<body>
+	<header>
+		<i class="ICON"></i>NAME
+	</header>
+</body>
+
+<settings>
+    <div class="padding  bg-smoke npb">
+        <div class="message message-alert">Phone Number and Amount support dynamic variables. <br>Variables are read from global Variables <code class="b">{key}</code> and from the message data <code class="b">{data.key}</code></div>
+		<div class="row">
+			<div class="col-md-6 m">
+				<ui-component name="input" path="?.phone" config="type:text;required:1">Phone Number</ui-component>
+                <div class="help">Currently, we only accept the Gabonese Airtel Money numbers.</div>
+			</div>
+			<div class="col-md-6 m">
+				<ui-component name="input" path="?.amount" config="default:100;type:text;required:1">Amount</ui-component>
+                <div class="help">Minimum Amount is 100 cfa, Maximum Amount is 400.000 cfa</div>
+			</div>
+		</div>
+	</div>
+	<div class="padding">
+		<div class="row">
+            <div class="col-md-12 m">
+                <ui-component name="input" path="?.apiKey" config="placeholder:@(Token);monospace:1">Token</ui-component>
+                <div class="help"><a href="https://mypvit.com/documentation.kk" target="_blank">Pvit Documentation</a>.</div>
+			</div>
+			<div class="col-md-6 m">
+                <ui-component name="input" path="?.code_marchand" config="placeholder:@(Marchand Airtel Money);monospace:1">Marchand Airtel Money</ui-component>
+			</div>
+			<div class="col-md-6 m">
+                <ui-component name="input" path="?.code_marchandMC" config="placeholder:@(Marchand MobiCash);monospace:1">Marchand MobiCash</ui-component>
+			</div>
+		</div>
+        <div class="row">
+            <div class="col-md-9 m">
+                <ui-component name="textarea" path="?.inProgress" config="placeholder:@(Payment in progress message);monospace:1">Payment in progress notification</ui-component>
+            </div>
+            <div class="col-md-3 m">
+                <ui-component name="input" path="?.timeout" config="type:number">Request Timeout</ui-component>
+                <div class="help"><i class="ti ti-clock"></i><ui-bind path="?.timeout" config="text:((value||0)/1000).floor(2)+' sec.'"></ui-bind> Timeout</div>
+            </div>
+        </div>
+	</div>
+    <!-- <div class="padding bg-smoke npb">
+        <div class="padding">
+            <div class="message message-alert">Data to send to next node</div>
+        </div>
+		<div class="row">
+			<div class="col-md-6 m">
+                <ui-component name="input" path="?.path" config="placeholder:path.to.property;monospace:1">Load data from the specific property/field</ui-component>
+                <div class="help">Optional. The data will be loaded from the specific property/field.</div>
+			</div>
+			<div class="col-md-6 m">
+                <ui-component name="input" path="?.pathSend" config="monospace:1">Property/field to store request response data</ui-component>
+                <div class="help">Optional. The property/field to store response before send next node</div>
+			</div>
+		</div>
+	</div> -->
+</settings>

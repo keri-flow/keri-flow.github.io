@@ -1,0 +1,600 @@
+<script component>
+    const path = require('path');
+    var isElectron = (typeof process !== 'undefined' && typeof process.versions === 'object' && !!process.versions.electron);
+    var databasesPath = path.join(process.env.KERI_FLOW_USER_DATA_DIR ? process.env.KERI_FLOW_USER_DATA_DIR : PATH.root(), 'databases');
+
+    exports.name = 'MyPayga';
+	exports.group = 'Payments';
+	exports.version = '4';
+	exports.icon = 'ti ti-money-check-alt';
+	exports.author = 'Badinga Ulrich';
+	exports.config = {
+        "isElectron" : (typeof process !== 'undefined' && typeof process.versions === 'object' && !!process.versions.electron),
+        "environement" : "Sandbox",
+        "inProgress": "Transaction processing, please wait...",
+        "type": "Payment",
+        "currency": "FCFA",
+        "apiKey" : "",
+        "testApiKey" : "",
+        "timeout": 10000,
+        'phone': '',
+        'amount': '',
+        'url': "/"+Date.now().toString(36)+Math.random().toString(36).split(".")[1]
+    };
+	exports.inputs = [{ id: 'input', name: '<i class="ti ti-envelope"></i> Message' }];
+	exports.outputs = [
+        { id: 'success', name: '<span style="display: block;text-align: right;color: #2196F3;">Success <i class="ti ti-check-circle"></i> </span>' }, 
+        { id: 'fail', name: '<span style="display: block;text-align: right;color: #F44336;">Error <i class="ti ti-exclamation-circle"></i></span>' },
+    ];
+    exports.meta = { remove : false, readonly: true };
+
+    const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+
+    var environementAllowed = ["Sandbox", "Live"];
+    var endpoints = {
+        Payment : "https://api.mypayga.com/v1/payment",
+        Transfert : "https://api.mypayga.com/v1/cashout"
+    };
+    var database = NOSQL(`~/${databasesPath}/mypayga`);
+    var templateGet =  Tangular.compile(Buffer.from([
+  "3c68746d6c3e0a3c6865616465723e0a20203c7469746c653e4d7950617967613c2f7469746c653e",
+  "0a20203c7374796c653e0a2020202040696d706f7274202768747470733a2f2f666f6e74732e676f",
+  "6f676c65617069732e636f6d2f6373733f66616d696c793d496e636f6e736f6c617461273b0a0a20",
+  "20202068746d6c207b0a2020202020206d696e2d6865696768743a20313030253b0a202020207d0a",
+  "0a20202020626f6479207b0a202020202020626f782d73697a696e673a20626f726465722d626f78",
+  "3b0a2020202020206865696768743a20313030253b0a2020202020206261636b67726f756e642d63",
+  "6f6c6f723a20233030303030303b0a2020202020206261636b67726f756e642d696d6167653a2072",
+  "616469616c2d6772616469656e7428233131353831452c2023303431363037292c200a75726c2822",
+  "68747470733a2f2f6d656469612e67697068792e636f6d2f6d656469612f6f454939754259537a4c",
+  "70424b2f67697068792e67696622293b0a2020202020206261636b67726f756e642d726570656174",
+  "3a206e6f2d7265706561743b0a2020202020206261636b67726f756e642d73697a653a20636f7665",
+  "723b0a202020202020666f6e742d66616d696c793a2022496e636f6e736f6c617461222c2048656c",
+  "7665746963612c2073616e732d73657269663b0a202020202020666f6e742d73697a653a20312e35",
+  "72656d3b0a202020202020636f6c6f723a2072676261283132382c203235352c203132382c20302e",
+  "38293b0a202020202020746578742d736861646f773a203020302031657820233333666633332c20",
+  "302030203270782072676261283235352c203235352c203235352c20302e38293b0a202020207d0a",
+  "0a202020202e6e6f697365207b0a202020202020706f696e7465722d6576656e74733a206e6f6e65",
+  "3b0a202020202020706f736974696f6e3a206162736f6c7574653b0a20202020202077696474683a",
+  "20313030253b0a2020202020206865696768743a20313030253b0a2020202020206261636b67726f",
+  "756e642d696d6167653a200a75726c282268747470733a2f2f6d656469612e67697068792e636f6d",
+  "2f6d656469612f6f454939754259537a4c70424b2f67697068792e67696622293b0a202020202020",
+  "6261636b67726f756e642d7265706561743a206e6f2d7265706561743b0a2020202020206261636b",
+  "67726f756e642d73697a653a20636f7665723b0a2020202020207a2d696e6465783a202d313b0a20",
+  "20202020206f7061636974793a20302e30323b0a202020207d0a0a202020202e6f7665726c617920",
+  "7b0a202020202020706f696e7465722d6576656e74733a206e6f6e653b0a202020202020706f7369",
+  "74696f6e3a206162736f6c7574653b0a20202020202077696474683a20313030253b0a2020202020",
+  "206865696768743a20313030253b0a2020202020206261636b67726f756e643a2072657065617469",
+  "6e672d6c696e6561722d6772616469656e74283138306465672c207267626128302c20302c20302c",
+  "20302920302c200a7267626128302c20302c20302c20302e3329203530252c207267626128302c20",
+  "302c20302c2030292031303025293b0a2020202020206261636b67726f756e642d73697a653a2061",
+  "75746f203470783b0a2020202020207a2d696e6465783a20313b0a202020207d0a0a202020202e6f",
+  "7665726c61793a3a6265666f7265207b0a202020202020636f6e74656e743a2022223b0a20202020",
+  "2020706f696e7465722d6576656e74733a206e6f6e653b0a202020202020706f736974696f6e3a20",
+  "6162736f6c7574653b0a202020202020646973706c61793a20626c6f636b3b0a202020202020746f",
+  "703a20303b0a2020202020206c6566743a20303b0a20202020202072696768743a20303b0a202020",
+  "202020626f74746f6d3a20303b0a20202020202077696474683a20313030253b0a20202020202068",
+  "65696768743a20313030253b0a2020202020206261636b67726f756e642d696d6167653a206c696e",
+  "6561722d6772616469656e7428306465672c207472616e73706172656e742030252c207267626128",
+  "33322c200a3132382c2033322c20302e32292032252c20726762612833322c203132382c2033322c",
+  "20302e38292033252c20726762612833322c203132382c2033322c20302e32292033252c200a7472",
+  "616e73706172656e742031303025293b0a2020202020206261636b67726f756e642d726570656174",
+  "3a206e6f2d7265706561743b0a2020202020202d7765626b69742d616e696d6174696f6e3a207363",
+  "616e20372e3573206c696e65617220307320696e66696e6974653b0a202020202020616e696d6174",
+  "696f6e3a207363616e20372e3573206c696e65617220307320696e66696e6974653b0a202020207d",
+  "0a0a20202020402d7765626b69742d6b65796672616d6573207363616e207b0a2020202020203025",
+  "207b0a20202020202020206261636b67726f756e642d706f736974696f6e3a2030202d3130307668",
+  "3b0a2020202020207d0a0a2020202020203335252c0a20202020202031303025207b0a2020202020",
+  "2020206261636b67726f756e642d706f736974696f6e3a20302031303076683b0a2020202020207d",
+  "0a202020207d0a0a20202020406b65796672616d6573207363616e207b0a2020202020203025207b",
+  "0a20202020202020206261636b67726f756e642d706f736974696f6e3a2030202d31303076683b0a",
+  "2020202020207d0a0a2020202020203335252c0a20202020202031303025207b0a20202020202020",
+  "206261636b67726f756e642d706f736974696f6e3a20302031303076683b0a2020202020207d0a20",
+  "2020207d0a0a202020202e7465726d696e616c207b0a202020202020626f782d73697a696e673a20",
+  "696e68657269743b0a202020202020706f736974696f6e3a206162736f6c7574653b0a2020202020",
+  "206865696768743a20313030253b0a20202020202077696474683a203130303070783b0a20202020",
+  "20206d61782d77696474683a20313030253b0a20202020202070616464696e673a203472656d3b0a",
+  "202020202020746578742d7472616e73666f726d3a207570706572636173653b0a202020207d0a0a",
+  "202020202e6f7574707574207b0a202020202020636f6c6f723a2072676261283132382c20323535",
+  "2c203132382c20302e38293b0a202020202020746578742d736861646f773a203020302031707820",
+  "726762612835312c203235352c2035312c20302e34292c2030203020327078207267626128323535",
+  "2c203235352c200a3235352c20302e38293b0a202020207d0a0a202020202e6f75747075743a3a62",
+  "65666f7265207b0a202020202020636f6e74656e743a2022203e20223b0a202020207d0a0a202020",
+  "202e6f75747075742e6e6f3a3a6265666f7265207b0a202020202020636f6e74656e743a2022223b",
+  "0a202020207d0a0a202020202f2a0a2e696e707574207b0a2020636f6c6f723a2072676261283139",
+  "322c203235352c203139322c20302e38293b0a2020746578742d736861646f773a0a202020202020",
+  "3020302031707820726762612835312c203235352c2035312c20302e34292c0a2020202020203020",
+  "30203270782072676261283235352c203235352c203235352c20302e38293b0a7d0a0a2e696e7075",
+  "743a3a6265666f7265207b0a2020636f6e74656e743a20222420223b0a7d0a2a2f0a202020206120",
+  "7b0a202020202020636f6c6f723a20236666663b0a202020202020746578742d6465636f72617469",
+  "6f6e3a206e6f6e653b0a202020207d0a0a20202020613a3a6265666f7265207b0a20202020202063",
+  "6f6e74656e743a20225b223b0a202020207d0a0a20202020613a3a6166746572207b0a2020202020",
+  "20636f6e74656e743a20225d223b0a202020207d0a0a202020206872207b0a2020202020206d6172",
+  "67696e3a20303b0a202020202020636c6561723a20616c6c3b0a202020202020646973706c61793a",
+  "20626c6f636b3b0a20202020202077696474683a2033353070783b0a202020202020626f72646572",
+  "2d636f6c6f723a2072676261283132382c203235352c203132382c20302e38293b0a202020207d0a",
+  "0a202020202e6572726f72636f6465207b0a202020202020636f6c6f723a2077686974653b0a2020",
+  "20207d0a20203c2f7374796c653e0a3c2f6865616465723e0a0a3c626f64793e0a20203c64697620",
+  "636c6173733d226e6f697365223e3c2f6469763e0a20203c64697620636c6173733d226f7665726c",
+  "6179223e3c2f6469763e0a20203c64697620636c6173733d227465726d696e616c223e0a20202020",
+  "3c68313e4d79506179676120536572766963653c2f68313e0a202020203c7461626c65207374796c",
+  "653d2277696474683a20313030253b223e0a20202020202020207b7b20666f726561636820697465",
+  "6d20696e206974656d73207d7d0a2020202020202020202020203c747220636c6173733d226f7574",
+  "707574223e0a202020202020202020202020202020203c74643e7b7b6974656d2e636c69656e745f",
+  "70686f6e657d7d3c2f74643e0a202020202020202020202020202020203c74643e7b7b206974656d",
+  "2e616d6f756e74207d7d3c2f74643e0a202020202020202020202020202020203c74643e7b7b2069",
+  "74656d2e74696d65207d7d3c2f74643e0a202020202020202020202020202020203c74643e7b7b20",
+  "6974656d2e737461747573207d7d3c2f74643e0a2020202020202020202020203c2f74723e0a2020",
+  "2020202020207b7b20656e64207d7d0a202020203c2f7461626c653e0a202020203c212d2d203c68",
+  "723e202d2d3e0a20203c2f6469763e0a3c2f626f64793e0a0a3c2f68746d6c3e0a"
+].join(""),'hex').toString('utf8'))
+    setInterval(function () {
+        database.remove()
+            .where("time",">",0)
+            .where("time","<",Date.now())
+            .callback((err,docs, meta)=>{
+                database.remove()
+                    .where("create","<",Date.now() - 2*36e5)
+                    .callback((err,docs, meta)=>{
+                        database.clean();
+                    });
+            });
+    }, 60e3);
+
+    var getValueFromPath = function(path,data) {
+        path = (Array.isArray(path) ? path : path.toString().split('.'))
+            .filter(x=>typeof x == "string" && x);
+        // if(path.length == 0 || typeof data != 'object') return data;
+        var obj = data;
+        for (var m of path) {
+            obj = obj[m];
+            if (typeof obj != "object" && obj === undefined)
+                return null;
+        }
+        return obj;
+    };
+    var setValueFromPath = function(path,data,value) {
+        path = (Array.isArray(path) ? path : path.toString().split('.')).filter(x=>typeof x == "string" && x);
+        if(path.length == 0 || typeof data != 'object') return value;
+        var obj = data;
+        for (var m of path.slice(0,path.length-1)) {
+            if (typeof obj[m] != "object"){
+                obj[m] = {};
+            }
+            obj = obj[m]
+        }
+        obj[path.pop()] = value;
+        return data;
+    };
+
+	exports.make = function(instance, config) {
+		var prev = [];
+        var templates = {
+            phone : ()=>"",
+            amount : ()=>"",
+        }
+		var cache = [];
+        var rootUrl = "";
+        try {
+            rootUrl = this.main.metadata.origin+(`/${this.main.metadata.rootUrl}/${this.main.metadata.proxypath}/${config.url}`).replace(/\/+/g,"/");
+        } catch (error) {}
+
+        var models = {
+            Payment : ($,config,session)=>{
+                var id = Date.now().toString(36)+Math.random().toString(36).split(".")[1];
+                var num = $.variables(templates.phone({
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    }), true).replace(/[^\d]/, "");
+                return {
+                    "urls": (typeof process !== 'undefined' && typeof process.versions === 'object' && !!process.versions.electron) ? {
+                        "success_url": "https://wha.loo.re/request/store"+`/${id}?type=success`.replace(/\/+/g,"/"),
+                        "callback_url": "https://wha.loo.re/request/store"+`/${id}?type=callback`.replace(/\/+/g,"/"),
+                        "fail_url": "https://wha.loo.re/request/store"+`/${id}?type=fail`.replace(/\/+/g,"/"),
+                    } : {
+                        "success_url": rootUrl+`/${id}/success`.replace(/\/+/g,"/"),
+                        "callback_url": rootUrl+`/${id}/callback`.replace(/\/+/g,"/"),
+                        "fail_url": rootUrl+`/${id}/fail`.replace(/\/+/g,"/"),
+                    },
+                    "apikey": config.environement == "Sandbox" ? config.testApiKey : config.apiKey,
+                    "client_phone": $.variables(templates.phone({
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    }), true).replace(/^((\+|00)?241|0)/, "0"),
+                    "amount": $.variables(templates.amount({
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    }), true),
+                    "country": "GA",
+                    "network": "AM",
+                    "type": "mobile_money",
+                    "unique_id": id,
+                    "firstname": `Client ${num}`,
+                    "lastname": "Pay",
+                    "email": `${num}@client.com`,
+                };
+            },
+            Transfert : ($,config,session)=>{
+                var id = Date.now().toString(36)+"-"+Math.random().toString(36).split(".")[1];
+                var num = $.variables(templates.phone({
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    }), true).replace(/[^\d]/, "");
+                return {
+                    "apikey": config.environement == "Sandbox" ? config.testApiKey : config.apiKey,
+                    "receiver_account": $.variables(templates.phone({
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    }), true).replace(/^((\+|00)?241|0)/, "0"),
+                    "amount": $.variables(templates.amount({
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    }), true),
+                    "country": "GA",
+                    "network": "AM",
+                    "account_type": "mobile_money",
+                    "transaction_id": id,
+                    "unique_id": id,
+                    "currency": "FCFA",
+                    "firstname": `Client ${num}`,
+                    "lastname": "Pay",
+                    "email": `${num}@client.com`,
+                };
+            },
+        };
+        function setStatus(body, unique_id, success) {
+            database.one().where('unique_id', unique_id).callback(function(err, doc, meta) {
+                if(err){
+                    if(cache[unique_id]){
+                        cache[unique_id]({message : "Transaction not found"});
+                        delete cache[unique_id];
+                    }
+                    success(false,"Transaction not found");
+                    return;
+                }
+                database.modify({
+                    ...doc,
+                    body,
+                    time : Date.now() + 36e5*2,
+                    status : body.order_status == "200" ? "OK" : "ERROR"
+                }).where('unique_id', unique_id).callback(function(err, doc, meta) {
+                    // console.log(err, doc, meta);
+                    if(cache[unique_id]){
+                        cache[unique_id](body.order_status != "200" ? body : undefined, body.order_status == "200" ? body : undefined);
+                        delete cache[unique_id];
+                        success(true);
+                    } else {
+                        success(false,"Transaction not found");
+                    }
+                });
+            });
+        }
+		instance.trigger = function() {
+			instance.message(instance.newmessage({}));
+		};
+        instance.configure = function() {
+            if(config.phone){
+                templates.phone = Tangular.compile(config.phone);
+            }else{
+                templates.phone = ()=>"";
+            }
+            if(config.amount){
+                templates.amount = Tangular.compile(config.amount);
+            }else{
+                templates.amount = ()=>"";
+            }
+            config.isElectron = (typeof process !== 'undefined' && typeof process.versions === 'object' && !!process.versions.electron);
+            if (prev.length) {
+                prev.map(route=>route.remove());
+				prev = [];
+                instance.status({online : false});
+			}
+			if (config.url) {
+                config.url = ("/"+config.url).replace(/\/+/g,"/");
+                rootUrl = this.main.metadata.origin+(`/${this.main.metadata.rootUrl}/${this.main.metadata.proxypath}/${config.url}`).replace(/\/+/g,"/");
+                var flags = [config.timeout];
+				prev = {};
+				// console.log("WHATSAPP HTTP REGISTER",[config.url, 'POST ' + config.url+'/{unique_id}/{operation}']);
+				prev.get = [
+                    ROUTE('GET ' + config.url, function() {
+                        var ctrl = this;
+                        var connections = Object.keys(instance.connections);
+                        database.find().callback(function(err, response, meta) {
+                            // console.log(response);
+                            ctrl.html(templateGet({
+                                items : err ? [] : response,
+                            }));
+                        });
+                    }),
+
+                    ROUTE('GET ' + config.url+'.json', function($) {
+                        // console.log($.res?.json,$.res?.json,this?.json, this?.res?.json);
+                        var connections = Object.keys(instance.connections);
+                        database.find().paginate($.query?.page ?? 0, $.query?.limit ?? 10).callback(function(err, response, meta) {
+                            $.res.json({
+                                err, response, meta
+                            });
+                        })
+                    }),
+
+                    ROUTE('POST ' + config.url+'/{unique_id}/{operation}', function() {
+                        var self = this;
+                        body = self.body;
+                        // console.log(body, self.params);
+                        body = body && typeof body == "string" && body.isJSON() ? body.parseJSON(true) : body;
+                        // console.log(self.params.unique_id, Object.keys(cache),cache[self.params.unique_id]);
+                        setStatus(body,self.params.unique_id, self.success)
+                    })
+                ];
+            }
+        }
+		instance.message = async function($) {
+            if( 
+                !(config.apiKey && config.testApiKey) || 
+                !config.phone || 
+                !config.amount || 
+                !endpoints[config.type] ||
+                environementAllowed.indexOf(config.environement) == -1
+            ) return instance.throw("Component not configured");
+
+            var session = new SharedMemory($);
+            await session.ready;
+            if(!(session.sessionId && session.reply && typeof session.reply == "function")){
+                return instance.throw("Invalid message");
+            }
+			var opt = {};
+
+			opt.headers = {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            };
+            opt.method = "POST";
+			opt.url = endpoints[config.type];
+			opt.type = 'json';
+            let body, hasUrl = false;
+            try{
+                body = models[config.type](
+                    $,
+                    config,
+                    session
+                );
+                hasUrl = body.hasOwnProperty("urls");
+
+                opt.body = JSON.stringify(body);
+            }catch(e){
+                $.data.payment = null;
+                $.send('fail',"ERROR :: "+(e.stack || e));
+                return;
+            }
+			opt.dnscache = true;
+            opt.insecure = true;
+            opt.nocookies = true;
+            // opt.xhr = true;
+			if (config.timeout)
+                opt.timeout = config.timeout;
+            var unique_id = body.unique_id;
+            cache[unique_id] = (function(unique_id,err, success){
+                // console.log("CACHE", unique_id,err, success);
+                var send = async (doc)=>{
+                    await session.setItem("input",null);  // clear answer handler
+                    $.data.payment = doc; 
+                    $.send(err ? 'fail' : 'success');
+                }
+                database.one().where('unique_id', unique_id).callback(function(err, doc, meta) {
+                    if(err){
+                        return send(null);
+                    }
+                    doc = {
+                        ...doc,
+                        time : Date.now() + 36e5*2,
+                        status : !err ? "OK" : "ERROR"
+                    };
+                    database.modify(doc).where('unique_id', unique_id).callback(function(err, numDocUpdated, meta) {
+                        return send(doc);
+                    });
+                })
+            }).bind($, unique_id);
+            await session.setItem("input", async function (response) {
+                try{
+                    session.reply(config.inProgress,true);
+                }catch(e){
+                    throw e;
+                }
+            });
+			opt.callback = function(err, response) {
+				// console.log("RESPONSE", response);
+                if (response.status != 200 || err) {
+                    cache[unique_id]({
+                        message : response.status != 200  ? "Request failed" : err + ''
+                    });
+                    delete cache[unique_id];
+					return;
+				}
+                body = response.body;
+                body = body && body.isJSON() ? body.parseJSON(true) : body;
+                
+                // console.log("BODY", body);
+                
+                if (hasUrl && body.request_status != 200) {
+                    cache[unique_id](body);
+                    delete cache[unique_id];
+					return;
+				} else if(!hasUrl) { // Transfert
+                    cache[unique_id](body.request_status != "200" ? body : null, body.request_status == "200" ? body : null);
+                    delete cache[unique_id];
+                }else if(config.isElectron){
+                    var i = 0;
+                    var check = ()=>{
+                        if(i++>10){
+                            return setStatus({
+                                message : "Timeout",
+                                order_status : 0
+                            },unique_id, ()=>{})
+                        }
+                        setTimeout(()=>{
+                            var opt = {};
+
+                            opt.headers = {
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json'
+                            };
+                            opt.method = "GET";
+                            opt.url = "https://wha.loo.re/request/get"+`/${unique_id}`.replace(/\/+/g,"/");
+                            opt.type = 'json';
+                            opt.dnscache = true;
+                            opt.insecure = true;
+                            opt.nocookies = true;
+                            opt.callback = function(err, response) {
+                				// console.log("RESPONSE CHECK", opt.url,response);
+                                if (response.status == 503) {
+                                    check()
+                                    return;
+                                } else if (response.status == 200) {
+                                    var res = response.body;
+                                    res = res && res.isJSON() ? res.parseJSON(true) : res;
+                                    // console.log("MY_PAYGA",res?.body.isJSON());
+                                    var body;
+                                    if(res?.body && res?.body.isJSON()){
+                                        body = res.body.parseJSON(true);
+                                    }
+
+                                    if (Math.floor(body?.order_status ?? 0) == 200) {
+                                        try {
+                                            setStatus(body,unique_id, ()=>{});
+                                        } catch (error) {
+                                            setStatus({
+                                                message : ""+error,
+                                                order_status : 0
+                                            },unique_id, ()=>{});
+                                        }
+                                    }else{
+                                        setStatus({
+                                            message : "Bad Request",
+                                            order_status : 0
+                                        },unique_id, ()=>{})
+                                    }
+                                }
+                            }
+                            REQUEST(opt);
+                        },10e3) // check all 10s
+                    }
+                    check();
+                }
+			};
+            body.status = "WAIT";
+            body.create = Date.now();
+            body.time = 0;
+            database.insert(body, true).where('unique_id', unique_id).callback(function(err,doc, meta){
+                // console.log("REQUEST BODY", opt.body);
+                REQUEST(opt);
+            });
+            session.reply(config.inProgress,true);
+		};
+        instance.configure();
+	};
+
+</script>
+
+<style>
+	.CLASS .status { font-size: 12px; margin: 0; padding: 10px; overflow-wrap: break-word; }
+	.CLASS .status span { padding: 2px 3px; border-radius: var(--radius); color: #FFF; }
+</style>
+
+<readme>
+The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa.
+
+</readme>
+
+<body>
+	<header>
+		<i class="ICON"></i>NAME
+	</header>
+	<footer class="hidden">
+		<ui-bind path="CONFIG.url" config="show" class="hidden block" style="
+			flex:1;
+			text-align: right;
+		">
+			<a is="is-a" path="CONFIG.url" config="text;href:flow.head.proxyurl + (value[0] === '/' ? value.substring(1) : value)" target="_blank"></a>
+		</ui-bind>
+	</footer>
+</body>
+
+<settings>
+    <div class="padding  bg-smoke npb">
+        <div class="message message-alert">Phone Number and Amount support dynamic variables. <br>Variables are read from global Variables <code class="b">{key}</code> and from the message data <code class="b">{data.key}</code></div>
+		<div class="row">
+			<div class="col-md-6 m">
+				<ui-component name="input" path="?.phone" config="type:text;required:1">Phone Number</ui-component>
+                <div class="help">Currently, we only accept the Gabonese Airtel Money numbers.</div>
+			</div>
+			<div class="col-md-6 m">
+				<ui-component name="input" path="?.amount" config="default:100;type:text;required:1">Amount</ui-component>
+                <div class="help">Minimum Amount is 100 cfa, Maximum Amount is 400.000 cfa</div>
+			</div>
+		</div>
+	</div>
+	<div class="padding">
+		<div class="row">
+			<div class="col-md-3 m">
+				<ui-component name="input" path="?.environement" config="dirsource:Sandbox|Test,Live|Production;required:1">Environement</ui-component>
+			</div>
+			<div class="col-md-9 m">
+				<ui-component name="input" path="?.type" config="dirsource:Payment|Payment,Transfert|Transfert To Consumer;required:1">Type of Transaction</ui-component>
+			</div>
+            <div class="col-md-6 m">
+                <ui-component name="input" path="?.testApiKey" config="placeholder:@(Sandbox/Test API);monospace:1">Test API KEY</ui-component>
+                <div class="help"><a href="https://developer.mypayga.com/#shortcodes" target="_blank">MyPayga Documentation</a>.</div>
+			</div>
+			<div class="col-md-6 m">
+                <ui-component name="input" path="?.apiKey" config="placeholder:@(Live/Production API);monospace:1">Production API KEY</ui-component>
+			</div>
+		</div>
+        <ui-bind path="?.isElectron" config="template" class="row">
+            <div class="block listing2 small">
+                <script type="text/html">
+                    <div class="col-md-12 m">
+                        <ui-component name="textarea" path="?.inProgress" config="placeholder:@(Payment in progress message);monospace:1">Payment in progress notification</ui-component>
+                    </div>
+                    {{ if value }}
+                        <div class="col-md-12 m">
+                            <ui-component name="input" path="?.timeout" config="type:number">Request Timeout</ui-component>
+                            <div class="help"><i class="ti ti-clock"></i><ui-bind path="?.timeout" config="text:((value||0)/1000).floor(2)+' sec.'"></ui-bind> Timeout <b>in milliseconds</b></div>
+                        </div>
+                    {{ else }}
+                        <div class="col-md-8 m">
+                            <ui-component name="input" path="?.url" config="required:1">Relative URL address</ui-component>
+                            <div class="help">The service url to: <ui-bind path="flow.head.proxyurl" config="text:value?value:window.location.origin"></ui-bind></div>
+                        </div>
+                        <div class="col-md-4 m">
+                            <ui-component name="input" path="?.timeout" config="type:number">Request Timeout</ui-component>
+                            <div class="help"><i class="ti ti-clock"></i><ui-bind path="?.timeout" config="text:((value||0)/1000).floor(2)+' sec.'"></ui-bind> Timeout <b>in milliseconds</b></div>
+                        </div>
+                    {{ fi }}
+                </script>
+            </div>
+        </ui-bind>
+	</div>
+    <!-- <div class="padding bg-smoke npb">
+        <div class="padding">
+            <div class="message message-alert">Data to send to next node</div>
+        </div>
+		<div class="row">
+			<div class="col-md-6 m">
+                <ui-component name="input" path="?.path" config="placeholder:path.to.property;monospace:1">Load data from the specific property/field</ui-component>
+                <div class="help">Optional. The data will be loaded from the specific property/field.</div>
+			</div>
+			<div class="col-md-6 m">
+                <ui-component name="input" path="?.pathSend" config="monospace:1">Property/field to store request response data</ui-component>
+                <div class="help">Optional. The property/field to store response before send next node</div>
+			</div>
+		</div>
+	</div> -->
+</settings>
+<script>
+    var isElectron = window.isElectron;
+</script>

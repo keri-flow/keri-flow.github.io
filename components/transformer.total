@@ -1,0 +1,91 @@
+<script component>
+
+	exports.id = 'transformer';
+	exports.name = 'Transformer';
+	exports.icon = 'ti ti-pulse';
+	exports.author = 'Total.js';
+	exports.version = '1';
+	exports.group = 'Flow';
+	exports.meta = {readonly: true, remove: false};
+	exports.config = { code: '// data.name = data.name.toUpperCase()' };
+	exports.inputs = [{ id: 'input', name: 'Input' }];
+	exports.outputs = [{ id: 'output', name: 'Output' }];
+  const SharedMemory = REQUIRE('definitions/shared.js');
+	exports.make = function(instance, config) {
+
+		var fn;
+
+		instance.message = async function($) {
+      var data = $.data || $;
+			var session = new SharedMemory($);
+      await session.ready;
+			if(!(session.sessionId && session.reply && typeof session.reply == "function")){
+				session = SharedMemory.empty;
+				session.data = data;
+      }
+			if (fn) {
+				try {
+					var val = fn(data, session, {...instance.main.variables2, ...instance.main.variables});
+					if (val != null)
+						data = val;
+				} catch (e) {
+					instance.throw(e);
+					return;
+				}
+			}
+			instance.send('output', data);
+		};
+
+		instance.configure = function() {
+			try {
+				if (config.code)
+					fn = new Function('data', 'session', 'variables', config.code + ';return data;');
+				else
+					fn = null;
+			} catch (e) {
+				instance.throw(e);
+			}
+
+		};
+
+		instance.configure();
+
+	};
+
+</script>
+
+<readme>
+With this component you can easily modify incoming data. Then the `data` content is delivered.
+
+__Example 1__:
+
+```js
+// "data" is a reference to message data
+data.name = data.name.toUpperCase();
+```
+
+__Example 2__:
+
+```js
+data = data.toUpperCase();
+```
+
+__Example 3__:
+
+```js
+data.client = session.inputs.phone;
+data.label = session.menus.home.label;
+```
+</readme>
+
+<settings>
+	<div class="padding">
+		<ui-component name="codemirror" path="?.code" config="type:javascript;minheight:350;parent:auto;margin:85;tabs:true;trim:true" class="m"></ui-component>
+	</div>
+</settings>
+
+<body>
+	<header>
+		<i class="ICON"></i>NAME
+	</header>
+</body>

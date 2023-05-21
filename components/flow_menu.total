@@ -1,0 +1,281 @@
+<script component>
+    exports.name = 'Menu';
+    exports.group = 'Flow';
+    exports.icon = 'ti ti-list';
+    exports.version = '1';
+    exports.config = {
+        title: "Title" ,
+        name: "menu" ,
+        menu: {},
+        hasMedia : false,
+        hasCode : false,
+        code: [
+            "// data {Object};",
+            "// send('default', data); // or simply send(data); which uses the first output",
+            "// send('1', data); // to send a specific menu"
+        ].join("\n")
+    };
+    exports.inputs = [{ id: 'input', name: 'Data' }];
+    exports.outputs = [];
+    exports.meta = {readonly: true, remove: false};
+
+    const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+
+    exports.make = function(instance, config) {
+
+        var init = ()=>{};
+        var templates = {};
+        instance.message = async function($) {
+            var session = new SharedMemory($);
+            await session.ready;
+            if(!(session.sessionId && session.reply && typeof session.reply == "function")){
+                return instance.throw("Invalid message");
+            }
+            var getPort = (idNext, getPort)=>{
+                var goto = Object.entries(instance.connections).find(([id,o])=>{
+                    console.log(idNext, id, o, );
+                    var label = config.menu[Object.keys(config.menu)[id]] || "";
+                    return id.toString().trim().toLowerCase() == idNext.toString().trim().toLowerCase() ||
+                           label.toString().trim().toLowerCase() == idNext.toString().trim().toLowerCase()
+                })
+                if(goto){
+                    return goto[getPort ? 1 : 0];
+                }
+            }
+            var end = async (message,mediaUrl) => {
+                await session.setItem("input",null);  // clear answer handler
+                session.reply(message.trim(),false, null, mediaUrl);
+            }
+            var con = async (message, options, mediaUrl)=>{
+                await session.setItem("input", async function (response) {
+                    try{
+                        // console.log("ACTULY", response, arguments);
+                        var _port = getPort(response);
+                        if(_port){
+
+                            return send(_port); // pass data
+                        }else{
+                            showMenu();
+                        }
+                    }catch(e){
+                        // console.log(e, response, arguments);
+                        throw e;
+                    }
+                });
+                session.reply(message.trim(),true,options,mediaUrl || `${templates['MEDIA']({
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    })}`
+                );
+            }
+            var send =async (port) => {
+                try {
+                    await session.setItem("input",null);  // clear answer handler
+                    await session.setItem("menus",{
+                        ...(session.menus ?? {}),
+                        [config.name] : {
+                            value : port,
+                            label : config.menu[port]
+                        }
+                    });
+                    $.send(port, session.data);   
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+            var showMenu = (askMessage)=>{
+                var $data = {
+                    data : session.data ?? {},
+                    session : session,
+                    variables : {...instance.main.variables2,...instance.main.variables,}
+                };
+                if(askMessage || Object.keys(config.menu).length){
+                    if(askMessage)
+                        return con(askMessage);
+                    con(templates['TITLE']($data),config.menu);
+                }else
+                    end(`${templates['TITLE']($data)}`);
+            }
+            if(config.hasCode){
+                // execute init;
+                var _init;
+                try {
+                    _init = await init(
+                        session.data,
+                        session,
+                        {...instance.main.variables2,...instance.main.variables,},
+                        (port)=>{
+                        var _port = getPort(port);
+                        if(_port){
+                            send(_port);
+                        }else if(typeof port == "string"){
+                            end(port);
+                        }else{
+                            showMenu();
+                        }
+                        throw "EXIT";
+                    },(message)=>{
+                        end(message);
+                        throw "EXIT";
+                    }, (ask)=>{
+                        showMenu(ask);
+                        throw "EXIT";
+                    });
+                } catch (error) {
+                    if(error == "EXIT"){
+                        return; // stop function
+                    }
+                    instance.throw(error);
+                    return end(`${error}`);
+                }
+                if(typeof _init == "string" || typeof _init == "number"){
+                    var _port = getPort(_init);
+                    if(_port){
+                        return send(_port);
+                    }else{
+                        return end(_init);
+                    }
+                }
+            }
+            // show menu
+            showMenu();
+        };
+
+        instance.configure = function() {
+            if(config.code.trim()){
+                init = new Function("data, session , variables, send, stop, ask",`return (async ()=>{;\n${config.code};\n})();`);
+            }else
+                init = ()=>{};
+            instance.outputs = [];
+            if(Array.isArray(config.menu)){
+                var index = 0;
+                config.menu = config.menu.reduce((obj, menu)=>{
+                    index++;
+                    obj[menu.key? menu.key: index ] = menu.text;
+                    return obj;
+                },{});
+            }
+            Object.keys(config.menu).map((menu)=>{
+                templates[`${menu}`] = Tangular.compile(config.menu[menu]);
+                instance.outputs.push({ id: menu, name: menu+'. '+config.menu[menu] })
+            })
+            templates['TITLE'] = Tangular.compile(config.title);
+
+            if(config.hasMedia && config.mediaUrl){
+                templates['MEDIA'] = Tangular.compile(config.mediaUrl);
+            }else{
+                templates['MEDIA'] = ()=>"";
+            }
+            instance.inputs = [
+                { id: 'input', name: config.title || 'Data' }
+            ];
+            instance.save();
+        };
+
+        instance.configure();
+    };
+
+</script>
+
+<readme>
+# readme
+</readme>
+
+<settings>
+    <div class="padding">
+        <div class="row m">
+            <div class="col-md-4 m">
+                <label class="ui-input-label">Menu Name</label>
+                <ui-component name="input" path="?.name" config="autoexec:tmp_model.name;placeholder:name;maxlength:30;required:1;monospace:1"></ui-component>
+                <ui-bind path="?.name" class="help" config="html:value ? `<b>session.menus.${value}</b>` : ''"></ui-bind>
+            </div>
+            <div class="col-md-8 m">
+                <label class="ui-input-label">Title</label>
+                <ui-component name="input" path="?.title" config="maxlength:156;required:1"></ui-component>
+            </div><br/>
+            <div class="col-md-4 m">
+                <ui-component name="input" path="?.hasMedia" config="type:checkbox">With Media</ui-component>
+            </div>
+            <div class="col-md-4">
+                <ui-component name="input" path="?.hasCode" config="type:checkbox">With Code</ui-component>
+            </div>
+        </div>
+        <ui-bind path="?.hasMedia" config="show" class="hidden block col-md-12 m">
+            <label class="ui-input-label">Media Url</label>
+            <ui-component name="input" path="?.mediaUrl" config="required:1;placeholder:@(Media Url)"></ui-component>
+            <div class="help">Max size allowed is <b>16Mb</b>.</div>
+        </ui-bind>
+        <ui-bind path="?.hasCode" config="show" class="hidden block m">
+            <div class="ui-input-label">Javascript Code:</div>
+            <ui-component name="codemirror" path="?.code" config="type:javascript;height:250;parent:auto;margin:30;tabs:true;trim:true" class="m"></ui-component>
+        </ui-bind>
+        <section class="menus padding">
+            <ui-component name="keyvalue" path="?.menu" config="maxlengthkey:2;patternkey:[0-9]+;placeholderkey:Menu Choice;placeholdervalue:Menu Label and press enter">Menu</ui-component>
+        </section>
+    </div>
+</settings>
+
+<script>
+
+    TOUCH(function(exports, init) {
+        exports.configure = function(config, isInit) {
+            if(Array.isArray(config.menu)){
+                var index = 0;
+                config.menu = config.menu.reduce((obj, menu)=>{
+                    index++;
+                    obj[menu.key? menu.key: index ] = menu.text;
+                    return obj;
+                },{});
+            }
+            exports.instance.outputs = Object.keys(config.menu).map((menu)=>({ id: menu, name: menu+'. '+config.menu[menu] }));
+
+            exports.instance.inputs = [
+                { id: 'input', name: exports.config.title || 'Data' }
+            ];
+            UPD('flow.data');
+        }
+        exports.settings = function(meta){
+            var tmp = W.tmp_model;
+			if (!tmp) {
+				tmp = {};                
+                /// set item value
+                tmp.name = function(opt, next) {
+					opt.value = opt.value.replace(/(;|\s|,)/g, '').trim();
+                    next(opt.value ? true : opt.html);
+				};
+				W.tmp_model = tmp;
+			}
+        }
+    });
+</script>
+
+<style>
+    .CLASS footer { padding: 10px; font-size: 12px; }
+
+    .button-add { height: 24px; font-size: 12px; border: 1px solid #E0E0E0; border-radius: var(--radius); color: #000; background-color: #f0f0f0; margin: 0; padding: 2px 10px; }
+    .button-add:hover { background-color: #F8F8F8; }
+    .button-add:active { background-color: #E0E0E0; }
+
+    .ui-dark .button-add { border-color: #404040; color: #FFF; background-color: #202020; }
+    .ui-dark .button-add:hover { background-color: #303030; }
+    .ui-dark .button-add:active { background-color: #404040; }
+
+    .switch-input-group { clear: both; height: 36px; }
+    .switch-input-group > ui-component:first-child .ui-input-control { border-right: none; border-bottom-right-radius: 0; border-top-right-radius: 0; width: 120px; float: left; background-color: #f0f0f0; }
+    .switch-input-group > ui-component:last-child .ui-input-control { border-bottom-left-radius: 0; border-top-left-radius: 0; float: left; width: calc(100% - 120px); }
+    .switch-input-group.wide > ui-component:first-child .ui-input-control { width: 200px; }
+    .switch-input-group.wide > ui-component:last-child .ui-input-control { width: calc(100% - 200px); }
+    .menus { border: 1px solid #e0e0e0; padding: 8px; border-radius: 3px; }
+    .menu { border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px; margin-bottom:4px; }
+    .menu > .row > .col-md-1 { height: 36px; line-height: 36px; }
+    .switch-help { background-color: #e7e7ff; border-radius: 3px; padding: 4px; }
+    .switch-thead { padding: 8px; margin-bottom:4px; }
+</style>
+
+<body>
+    <header>
+        <i class="ICON"></i>NAME
+        <ui-bind path="CONFIG.hasCode" config="show" class="hidden"><span class="ti ti-code"></span></ui-bind>
+    </header>
+</body>

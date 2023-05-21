@@ -1,0 +1,217 @@
+<script component>
+    exports.name = 'Confirm';
+    exports.group = 'Flow';
+    exports.icon = 'fa far fa-question-circle';
+    exports.version = '1';
+    exports.npm = [];
+    exports.config = {
+        name : "input",
+        message: "Confirm Message" ,
+        mediaUrl : "",
+        hasMedia : false,
+        hasCode : false,
+        confirmText : "Reply *yes* or *no*",
+        yesValue : "yes",
+        noValue : "no",
+        yesText : "Yes",
+        noText : "No",
+        code: `
+// data {Object}
+// params {Object}
+// session {SessionObject}
+// variables {Object.<String, String>} - global variables
+
+return "My new message";
+`
+    };
+    exports.inputs = [{ id: 'input', name: 'Data' }];
+    exports.outputs = [
+      { id: 'yes', name: 'Yes' },
+      { id: 'no',  name: 'No'  }
+    ];
+    exports.meta = {readonly: true, remove: false};
+
+    const SharedMemory = REQUIRE('definitions/shared.js');
+
+
+    exports.make = function(instance, config) {
+
+            var init = ()=>{};
+            var templates = {};
+        instance.message = async function($) {
+            var session = new SharedMemory($);
+            await session.ready;
+            if(session.sessionId && session.confirm && typeof session.confirm == "function"){
+                var end = async (message) => {  
+                  var response = await session.confirm({
+                    message,
+                    ...(['confirmText','yesValue','yesText','noValue','noText'].reduce((ret, key)=>{
+                      if(templates[key.toUpperCase()]){
+                        ret[key] = `${templates[key.toUpperCase()]({
+                            data : session.data ?? {},
+                            session : session,
+                            variables : {...instance.main.variables2,...instance.main.variables,}
+                        })}`;
+                      }
+                      return ret;
+                    },{})),
+                    mediaUrl : `${templates['MEDIA']({
+                      data : session.data ?? {},
+                      session : session,
+                      variables : {...instance.main.variables2,...instance.main.variables,}
+                    })}`
+                  });
+                  // save inputs
+                  await session.setItem("inputs",{
+                    ...(session.inputs ?? {}),
+                    [config.name] : response
+                  });
+                  instance.send( response === config.yesValue ? 'yes' : 'no', session.data);
+                }
+                // execute init;
+                if(config.hasCode){
+                    var _init;
+                    try {
+                        _init = await init(session.data,session,{...instance.main.variables2,...instance.main.variables,});
+                    } catch (error) {
+                        if(error == "EXIT"){
+                            return; // stop function
+                        }
+                        instance.throw(error);
+                        return;
+                    }
+                    if(_init && typeof _init == "string"){
+                        return end(`${_init}`);
+                    }
+                }
+                // show message
+                end(`${templates['MESSAGE']({
+                    data : session.data ?? {},
+                    session : session,
+                    variables : {...instance.main.variables2,...instance.main.variables,}
+                })}`);
+            }else{
+                return instance.throw("Invalid message");
+            }
+        };
+
+        instance.configure = function() {
+            if(config.code.trim())
+                init = new Function("data, session , variables",`return (async ()=>{;\n${config.code};\n})();`);
+            else
+                init = ()=>{};
+            ['message','confirmText','yesValue','yesText','noValue','noText'].forEach(key=>{
+              if(config[key]){
+                  templates[key.toUpperCase()] = Tangular.compile(config[key]);
+              }else{
+                  templates[key.toUpperCase()] = "";
+              }
+            })
+            if(config.hasMedia && config.mediaUrl){
+                templates['MEDIA'] = Tangular.compile(config.mediaUrl);
+            }else{
+                templates['MEDIA'] = ()=>"";
+            }
+            instance.inputs = [{ id: 'input', name: config.message || 'Data' }];
+            instance.save();
+        };
+
+        instance.configure();
+    };
+
+</script>
+
+<readme>
+# readme
+</readme>
+
+<settings>
+    <div class="padding">
+        <div class="row m">
+            <div class="col-md-4 m">
+                <label class="ui-input-label">Input Name</label>
+                <ui-component name="input" path="?.name" config="autoexec:setName;placeholder:name;maxlength:30;required:1;monospace:1"></ui-component>
+                <ui-bind path="?.name" class="help" config="html:value ? `<b>session.inputs.${value}</b>` : ''"></ui-bind>
+            </div>
+            <div class="col-md-8 m">
+                <ui-component name="input" path="?.confirmText" config="type:text">Confirm Text</ui-component>
+            </div>
+            <div class="col-md-12 m">
+                <label class="ui-input-label">Message</label>
+                <ui-component name="textarea" path="?.message" config="required:1;height:150;placeholder:@(Write your message)"></ui-component>
+            </div>
+            <div class="col-md-6 m">
+                <ui-component name="input" path="?.hasMedia" config="type:checkbox">With Media</ui-component>
+            </div>
+            <div class="col-md-6 m">
+                <ui-component name="input" path="?.hasCode" config="type:checkbox">With Code</ui-component>
+            </div>
+
+            <div class="col-md-6 m">
+                <ui-component name="input" path="?.yesText" config="type:text">Yes Label</ui-component>
+            </div>
+            <div class="col-md-6 m">
+                <ui-component name="input" path="?.yesValue" config="type:text">Yes Value</ui-component>
+            </div>
+            <div class="col-md-6 m">
+                <ui-component name="input" path="?.noText" config="type:text">No Label</ui-component>
+            </div>
+            <div class="col-md-6 m">
+                <ui-component name="input" path="?.noValue" config="type:text">No Value</ui-component>
+            </div>
+        </div>
+        <ui-bind path="?.hasMedia" config="show" class="hidden block col-md-12 m">
+            <label class="ui-input-label">Media Url</label>
+            <ui-component name="input" path="?.mediaUrl" config="required:1;placeholder:@(Media Url)"></ui-component>
+        </ui-bind>
+        <ui-bind path="?.sendTo" config="show" class="hidden block col-md-12 m">
+            <label class="ui-input-label">To</label>
+            <ui-component name="input" path="?.to" config="required:1;placeholder:@(To)"></ui-component>
+            <div class="help">Optional, you can enter the receiver, leave empty for reply.</div>
+        </ui-bind>
+        <ui-bind path="?.hasCode" config="show" class="hidden block col-md-12 m">
+            <div class="ui-input-label">Javascript Code:</div>
+            <ui-component name="codemirror" path="?.code" config="type:javascript;height:250;parent:auto;margin:30;tabs:true;trim:true" class="m"></ui-component>
+        </ui-bind>
+    </div>
+</settings>
+
+<script>
+    TOUCH(function(exports, init) {
+        exports.configure = function(config, isInit) {
+            config.message.replace(/\r\n?/,"\n")
+            UPD('flow.data');
+        }
+    });
+
+</script>
+
+<style>
+    .CLASS footer { padding: 10px; font-size: 12px; }
+
+    .button-add { height: 24px; font-size: 12px; border: 1px solid #E0E0E0; border-radius: var(--radius); color: #000; background-color: #f0f0f0; margin: 0; padding: 2px 10px; }
+    .button-add:hover { background-color: #F8F8F8; }
+    .button-add:active { background-color: #E0E0E0; }
+
+    .ui-dark .button-add { border-color: #404040; color: #FFF; background-color: #202020; }
+    .ui-dark .button-add:hover { background-color: #303030; }
+    .ui-dark .button-add:active { background-color: #404040; }
+
+    .switch-input-group { clear: both; height: 36px; }
+    .switch-input-group > ui-component:first-child .ui-input-control { border-right: none; border-bottom-right-radius: 0; border-top-right-radius: 0; width: 120px; float: left; background-color: #f0f0f0; }
+    .switch-input-group > ui-component:last-child .ui-input-control { border-bottom-left-radius: 0; border-top-left-radius: 0; float: left; width: calc(100% - 120px); }
+    .switch-input-group.wide > ui-component:first-child .ui-input-control { width: 200px; }
+    .switch-input-group.wide > ui-component:last-child .ui-input-control { width: calc(100% - 200px); }
+    .menus { border: 1px solid #e0e0e0; padding: 8px; border-radius: 3px; }
+    .menu { border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px; margin-bottom:4px; }
+    .menu > .row > .col-md-1 { height: 36px; line-height: 36px; }
+    .switch-help { background-color: #e7e7ff; border-radius: 3px; padding: 4px; }
+    .switch-thead { padding: 8px; margin-bottom:4px; }
+</style>
+
+<body>
+    <header>
+        <i class="ICON"></i>NAME
+        <ui-bind path="CONFIG.hasCode" config="show" class="hidden"><span class="ti ti-code"></span></ui-bind>
+    </header>
+</body>

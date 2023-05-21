@@ -1,0 +1,938 @@
+<script component>
+
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const mime = require('mime-types');
+    const logger = require('pino')({
+    level : 'error',
+        name : "whatsapp"
+    });
+    var isElectron = (typeof process !== 'undefined' && typeof process.versions === 'object' && !!process.versions.electron);
+    var databasesPath = path.join(process.env.KERI_FLOW_USER_DATA_DIR ? process.env.KERI_FLOW_USER_DATA_DIR : PATH.root(), 'databases');
+    var pref = JSON.parse(require('fs').readFileSync(PATH.join(databasesPath,"preferences.json")));
+    const { default: makeWASocket,delay,WA_DEFAULT_EPHEMERAL, extractMessageContent,makeInMemoryStore, useMultiFileAuthState, Browsers, DisconnectReason, downloadMediaMessage } = require('@adiwajshing/baileys');
+
+    path.root = dir=>dir? PATH.join(PATH.root(),dir) : PATH.root();
+    path.mkdir = (dir, mode=null)=>fs.mkdirSync(dir,{recursive: true, ...((typeof mode == "string" && /^(r|w|x){1,3}$/) || typeof mode == "number" ? {mode} : {} )});
+
+    const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+
+	exports.name = 'Whatsapp';
+	exports.icon = 'fab fa-whatsapp';
+	exports.author = 'Oshimin Labs';
+	exports.version = '1';
+	exports.group = 'Connector';
+	exports.config = {
+        selectText: "Select a choice",
+        actionText: "Click here",
+        answerText: "Answer with one of the choices",
+        name : "whatsapp",
+        order : "",
+        outputs : []
+    };
+	exports.inputs = [];
+	exports.outputs = [];
+
+	exports.npm = [];
+    exports.meta = {sendMessage:true , singleton : true, remove : false, readonly: true };
+
+    var client,clientOfflineTTL;
+    var ephemeralExpiration = {
+        no : undefined,
+        day : 24 * 60 * 60,
+        week : 7 * 24 * 60 * 60,
+        months : 3 * 4 * 7 * 24 * 60 * 60
+    }
+    function setOffline(){
+        clearTimeout(clientOfflineTTL);
+        setTimeout(()=>{
+            client?.sendPresenceUpdate('unavailable');  // disable online
+        },60000);
+    }
+
+    function getMessage(message, options, footer) {
+            if(options && typeof options == "object"){
+            options = arrayToObject(options);
+            return { text: `${message.trim()}\n\n${Object.keys(options).map((key, index)=>`${key}. ${options[key]}`.trim() ).join('\n')}\n\n${footer|| ""}`.trim()};
+        }else{
+            return {text : `${message.trim()}\n\n${footer|| ""}`.trim()};
+        }
+    }
+
+    async function getMediaFromFilePath(filePath, presence){
+        presence = presence ?? (()=>{});
+        await presence('composing');
+        const crypto = require('crypto');
+        var mimetype = mime.lookup(filePath);
+        var ext = mime.extension(mimetype) // 'bin'
+        var size = fs.statSync(filePath);
+        var buffer = fs.readFileSync(filePath);
+        var hash = crypto.createHash('md5').update(buffer).toString('base64');
+        await presence('paused');
+        switch (ext) {
+            case 'mp4':
+                return {
+                    video: buffer, 
+                    gifPlayback: size < 1024,
+                    mimetype,
+                    jpegThumbnail : isElectron ? null : undefined,
+                    fileName : path.parse(filePath).name+"."+ext
+                }
+            case 'mp3':
+            case 'mpga':
+                return {
+                    audio: buffer, 
+                    mimetype,
+                    jpegThumbnail : isElectron ? null : undefined,
+                    fileName : path.parse(filePath).name+"."+ext
+                }
+            case 'png':
+            case 'jpg':
+            case 'jpeg':
+                return {
+                    image: buffer, 
+                    mimetype,
+                    jpegThumbnail : isElectron ? null : undefined,
+                    fileName : path.parse(filePath).name+"."+ext
+                }
+            case 'webp':
+            case 'gif':
+                const { Sticker, createSticker, StickerTypes } = require('wa-sticker-formatter') // CommonJS
+                return await new Sticker(buffer)
+                    .setPack('Stickers')
+                    .setType(StickerTypes.FULL)
+                    .setAuthor('Keri Flow')
+                    .setId(hash)
+                    .toMessage();
+            default:
+                return {
+                    document: buffer, 
+                    mimetype,
+                    jpegThumbnail : isElectron ? null : undefined,
+                    fileName : path.parse(filePath).name+"."+ext
+                }
+                break;
+        }
+    }
+    async function getMediaFromUrl(url,presence){
+        presence = presence ?? (()=>{});
+        await presence('composing');
+
+        var size = 0;
+        var filePath = new URL(url).pathname;
+        var ret =  await new Promise(returnMedia=>{
+            var opt = {};
+            opt.url = url;
+            opt.limit = 1.6e+7; // Max 16Mb
+            opt.insecure = true;
+            opt.dnscache = true;
+            opt.method = "HEAD";
+            opt.custom = true;
+            opt.type = "raw";
+            opt.callback = async function(err, {headers}) {
+                if(err){
+                    throw err;
+                }
+                if(headers.hasOwnProperty("content-length")){
+                    size = parseFloat(headers["content-length"]);
+                    size = isNaN(size) ? 0 : size;
+                }
+                var mimetype = `${headers["content-type"]}`.split(";")[0].trim();
+                var ext = mime.extension(mimetype) // 'bin'
+
+                switch (ext) {
+                    case 'mp4':
+                        return returnMedia({
+                            video: {url}, 
+                            gifPlayback: size && size < 1024,
+                            mimetype,
+                            jpegThumbnail : isElectron ? null : undefined,
+                            fileName : path.parse(filePath).name+"."+ext
+                        });
+                    case 'mp3':
+                        return returnMedia({
+                            audio: {url}, 
+                            mimetype,
+                            jpegThumbnail : isElectron ? null : undefined,
+                            fileName : path.parse(filePath).name+"."+ext
+                        });
+                    case 'png':
+                    case 'jpg':
+                    case 'jpeg':
+                        return returnMedia({
+                            image: {url}, 
+                            mimetype,
+                            jpegThumbnail : isElectron ? null : undefined,
+                            fileName : path.parse(filePath).name+"."+ext
+                        });
+                    case 'webp':
+                    case 'gif':
+                        if(isElectron) return null;
+                        const { Sticker, createSticker, StickerTypes } = require('wa-sticker-formatter') // CommonJS
+                        return returnMedia(await new Sticker(url)
+                            .setPack('Stickers')
+                            .setType(StickerTypes.FULL)
+                            .setAuthor('Keri Flow')
+                            .toMessage()
+                        );
+                    default:
+                        return returnMedia({
+                            document : {url}, 
+                            mimetype,
+                            jpegThumbnail : isElectron ? null : undefined,
+                            fileName : path.parse(filePath).name+"."+ext
+                        });
+                };
+
+            };
+
+            REQUEST(opt);
+        });
+        await presence('paused');
+        return ret;
+    }
+    async function sendMessage({to,message,url, instance,privacy, defaultEphemeral}){
+        var ret = {
+            text : null,
+            media : null
+        }
+        if(!client) return instance.throw("Unable to send message, client disconnected");
+        privacy = ephemeralExpiration[privacy] ?? (defaultEphemeral ?? ephemeralExpiration.no);
+        await client.presenceSubscribe(to)
+        await delay(50)
+        var file;
+        try {
+            if(url && (/^http(s)?:\/\//.test(url) || fs.existsSync(url))){
+                try{
+                    await client.sendPresenceUpdate('composing', to);
+                    file = !(/^http(s)?:\/\//.test(url)) ? await getMediaFromFilePath(url,(msg)=>client.sendPresenceUpdate(msg, to)) : await getMediaFromUrl(url,(msg)=>client.sendPresenceUpdate(msg, to));
+                    if(file){
+                        await delay(message.length * 3);
+                        ret.media = await client.sendMessage(to,{
+                            ...file,
+                            caption: message.text,
+                        },{ephemeralExpiration : privacy});
+                        await client.sendPresenceUpdate('paused', to)
+                        await delay(50)
+                    }
+                } catch (error) {
+                    file = undefined;
+                    console.error(error);
+                    instance.throw(`Unable to send media.\n${url}`);
+                }
+            }
+            if(!file){
+                await client.sendPresenceUpdate('composing', to)
+                await delay(message.length * 3);
+                ret.text = await client.sendMessage(to,message,{ ephemeralExpiration: privacy });
+                await client.sendPresenceUpdate('paused', to)
+            }
+            setOffline();
+            return ret;
+        } catch (error) {
+            console.log("SEND MESSAGE ERROR", error)
+        }
+    }
+    
+    async function sendMessageTo(to, message, mediaUrl,privacy,instance) {
+        const phoneUtil = require('google-libphonenumber').PhoneNumberUtil.getInstance();
+        const PNF = require('google-libphonenumber').PhoneNumberFormat;
+        let number;
+        try {
+            number = await phoneUtil.parseAndKeepRawInput(to, 'GA');
+            if(phoneUtil.isValidNumber(number)){
+                number = (await client.onWhatsApp((await phoneUtil.format(number, PNF.E164)).replace(/^\D+/,"")))[0];
+                if(!number?.exists) throw `${to} is not on WhatsApp`;
+            }else{
+                throw `${to} is not a valid number`;
+            }
+        } catch (error) {
+        }
+        if(number){
+            sendMessage({
+                to : number.jid,
+                message: getMessage(message),
+                url: mediaUrl,
+                instance, privacy
+            });
+        }else{
+            return `Invalid Number : ${to}`;
+        }
+    }
+    
+    function arrayToObject( options) {
+        if(options && typeof options == "object" && !Array.isArray(options)){
+            return options;
+        }else if(options && typeof options == "object" && Array.isArray(options)){
+            return options.reduce((ret, value,index)=>{
+                ret[index+1] = value;
+                return ret;
+            },{});
+        }else{
+            return {};
+        }
+    }
+    // LOG MESSAGE FUNCTION
+    function matchstick(path) {
+        return {
+            // create regex
+            path: new RegExp("^" + path.trim().replace(/[ ]+/g," ").replace(/\{[^\s/]+\}/g, '([\\w-]+)') + "$","im"),
+            keys: path.match(/\{[^\s/]+\}/g)?.map(e=>e.replace(/(\{|\})/g,"")),
+            match(text){
+                var i = 0;
+                return text?.trim().replace(/[ ]+/g," ").match(this.path)?.splice(1).reduce((ret, el)=>{
+                    ret[this.keys[i++]] = el;
+                    return ret;
+                },{});
+            }
+        };
+    }
+    async function initEvents(config,status,instance,onDisconnect){
+        const QRCode = require('qrcode');
+        /////////// INIT EVENTS
+        client.ev.on('connection.update', ({connection, lastDisconnect,qr}) => {
+            if(connection === 'close'){
+              const statusCode = lastDisconnect?.error?.output?.statusCode
+              if(statusCode ==  DisconnectReason.loggedOut || statusCode ==  DisconnectReason.badSession){
+                // remove storage
+                fs.rmSync(path.join(databasesPath,"baileys",instance.id), { recursive: true, force: true });
+                status.online = false;
+                config.info = undefined;
+                status.error = null;
+                status.qr = null;
+                status.message = null;
+                instance.status(status);
+              }
+              setTimeout(()=>{
+                onDisconnect(status)
+              },2e3)
+            }else if (connection === 'open') {
+                status.online = true;
+                status.clientInfo = client ? client.user.id.replace(/(:\d+)?@/g,"@").replace(/@.+$/,"") : status.clientInfo;
+                config.info = status.clientInfo;
+                status.message = null;
+                status.error = null;
+                status.qr = null;
+                instance.status(status);
+                client.sendPresenceUpdate('unavailable');  // disable online
+            }
+            if(qr && status.online == false){
+                QRCode.toDataURL(qr.replace(/,1$/,""),(err, url) => {
+                    status.qr = url;
+                    instance.status(status);
+                })
+            }
+        });
+        
+        client.ev.on('messages.upsert', async (messages, type) => {
+            if(!messages?.messages[0] || !messages.messages[0]?.message){
+                return; // ignore message
+            }
+
+            function extractMessage(message, notLoad){
+                var mKeys = Object.keys(message.message);
+                var type = "";
+                if(mKeys.length ==1 && typeof message.message[mKeys[0]] == "object"){
+                    if(mKeys[0] == "extendedTextMessage")
+                        type = "conversation";
+                    message.message = message.message[mKeys[0]];
+                }
+                message = {
+                    ...message,
+                    message : undefined,
+                    ...message.message,
+                    ...(message.message.contextInfo ? {
+                        ...message.message.contextInfo,
+                        ...(!notLoad && message.message.contextInfo && message.message.contextInfo.quotedMessage ? {quotedMessage : extractMessage({message : message.message.contextInfo.quotedMessage}, true)} : {})
+                    } : {}),
+                    ...(mKeys.length ==1 && typeof message.message[mKeys[0]] == "string" ? {
+                        text : message.message[mKeys[0]]
+                    } : {}),
+                    /** @type {object} */
+                    id : message?.key ? {
+                        ...message?.key,
+                        remote : message?.key?.remoteJid
+                    } : undefined,
+                    /** @type {boolean} */
+                    fromMe : message?.key?.fromMe || false,
+                    /** @type {string} */
+                    from : message?.key?.fromMe ? client.user.id : (message?.key?.participant || message?.key?.remoteJid),
+                    /** @type {string} */
+                    to : !message?.key?.fromMe ? client.user.id : (message?.key?.participant || message?.key?.remoteJid),
+                    /** @type {string} */
+                    pushName : message.pushName,
+                    /** @type {boolean} */
+                    isGroup : /@g\.us$/.test(message?.key?.remoteJid || ""),
+                    /** @type {string} */
+                    group : /@g\.us$/.test(message?.key?.remoteJid || "") ? message?.key?.remoteJid : null,
+                    /** @type {boolean} */
+                    isStatus : /^status@broadcast$/.test(message?.key?.remoteJid || ""),
+                    /** @type {string} */
+                    body : "",
+                    ...(mKeys.length ==1 ? {[type || mKeys[0]] : true} : {}),
+                };
+                message.body = (message.caption ? message.caption : (message.text ? message.text :  (message.conversation ?? ""))) || "";
+                delete message.message;
+                return message;
+            }
+            let message = extractMessage(messages.messages[0]);
+            var ctrl = {
+                /** @type {string} */
+                id : message.id,
+                /** @type {boolean} */
+                fromMe : message.fromMe,
+                /** @type {string} */
+                from : message.from,
+                /** @type {string} */
+                to : !message.to,
+                /** @type {string} */
+                pushName : message.pushName,
+                /** @type {boolean} */
+                isGroup : message.isGroup,
+                /** @type {string | null} */
+                group : message.group,
+                /** @type {boolean} */
+                isStatus : message.isStatus,
+                /** @type {boolean} */
+                isUser : !message.isStatus && !message.isGroup,
+                /** @type {string} */
+                body : `${message.body || ""}`,
+                /** @type {string} */
+                provider : "whatsapp",
+                /** @type {string} */
+                cleanBody : `${message.body || ""}`
+                    .replace(/(?:\*)(?:(?!\s))((?:(?!\*|\n).)+)(?:\*)/g,'$1')
+                    .replace(/(?:_)(?:(?!\s))((?:(?!\n|_).)+)(?:_)/g,'$1')
+                    .replace(/(?:~)(?:(?!\s))((?:(?!\n|~).)+)(?:~)/g,'$1')
+                    .replace(/(?:--)(?:(?!\s))((?:(?!\n|--).)+)(?:--)/g,'$1')
+                    .replace(/(?:```)(?:(?!\s))((?:(?!\n|```).)+)(?:```)/g,'$1'),
+                async getQuotedMessage(){
+                    return message.quotedMessage;
+                }
+            }
+
+            if(!message || message.fromMe) return;
+            var isUser = (ctrl.from.match(/@s\.whatsapp\.net$/) || ctrl && !ctrl.isGroup),
+            isGroup = (ctrl.from.match(/@g\.us$/) || ctrl && ctrl.isGroup),
+            isStatus = (ctrl.isStatus) || ctrl.from == "status@broadcast";
+            // console.log("UPSERT",isStatus , !config.name , config.outputs.length);
+
+            if(!message.orderMessage && (isStatus || !config.name || config.outputs.length == 0)) return; // ignore messages
+            var session = new SharedMemory(ctrl, {
+                id       : ctrl.id,
+                body     : ctrl.body,
+                from     : ctrl.from, 
+                to       : ctrl.to, 
+                isStatus : ctrl.isStatus,
+                isGroup  : ctrl.isGroup,
+                isUser  : ctrl.isUser
+            });
+            await session.ready;
+            /// Core Functions
+            //// sayWelcome : welcome message
+            await session.setItem("sayWelcome",async function (message) {
+                if(`${message}`.trim()){
+                    await sendMessage({to : ctrl.from,message: getMessage(message), instance});
+                    await session.setItem("welcome" ,true);
+                }   
+            });
+            //// securePin : ask a pin to a user
+            await session.setItem("securePin",async function ({
+                message,
+                returnMessage,
+                urlMessage,
+                mediaUrl,
+                TTL, 
+                timeout,
+                privacy
+            }) {
+                try {
+                    await sendMessage({to : ctrl.from,message: getMessage(message), instance, privacy});
+                    var ret = await SharedMemory.remotePin({
+                        message,
+                        return_message : returnMessage,
+                        callback : async (link)=>{
+                            await sendMessage({
+                                to : ctrl.from,
+                                message: getMessage(`${link}\n${urlMessage}`),
+                                url: mediaUrl,
+                                defaultEphemeral : ephemeralExpiration.day,
+                                instance, 
+                                privacy
+                            });
+                        },
+                        TTL, 
+                        timeout
+                    });
+                    return ret;
+                } catch (error) {
+                    instance.throw(`${error}`);
+                    return null; 
+                }
+            });
+            //// confirm : send a message and wait for a confirmation
+            await session.setItem("confirm", function ({
+                message,
+                confirmText,
+                yesValue,
+                noValue,
+                yesText,
+                noText,
+                mediaUrl,
+                privacy
+            }) {
+                return new Promise(async (okFn,errFn)=>{
+                    var btnMsg;
+                    yesText = yesText || "yes";
+                    noText = noText || "no";
+                    confirmText = confirmText || `Reply *${yesText}* or *${noText}*`;
+                    await session.setItem("input", async function (response) {
+                        //btnMsg.delete(true);
+                        var clean = (str)=>str.toString().replace(/[ ]+/g," ").toUpperCase();
+                        var res = clean(response) == clean("1") || clean(response) == clean(yesValue) || clean(response) == clean(yesText);
+                        await session.setItem("input",null);  // clear answer handler
+                        okFn(res ? yesValue : noValue);
+                    });
+                    await sendMessage({
+                        to : ctrl.from,
+                        message: getMessage(`${message}\n\n--------------\n1. ${yesText}\n2. ${noText}\n--------------\n${confirmText}`),
+                        url: mediaUrl,
+                        instance, privacy
+                    });
+                });
+            });
+            //// message : send message to someone
+            await session.setItem("message",(to, message, mediaUrl,privacy)=>sendMessageTo(to, message, mediaUrl,privacy,instance));
+            //// reply : send reply to user
+            await session.setItem("reply",async function (message, ask, options,mediaUrl,privacy) {
+                await sendMessage({
+                    to : ctrl.from,
+                    message: getMessage(message, options, options && Object.keys(options).length ? config.answerText : ""),
+                    url: mediaUrl,
+                    instance, privacy
+                });
+                if(!ask || !session.input){
+                    session.bye();
+                }
+            });
+            // handle close session 
+            var byeSent = false;
+            await session.onBye((force,session)=>{
+                if(byeSent) return;
+                byeSent = true;
+                if(session.forceCloseMessage && force){
+                    sendMessage({
+                        to : ctrl.from,
+                        message: getMessage(session.forceCloseMessage),
+                        instance, privacy
+                    });
+                }else if(session.softCloseMessage && !force){
+                    sendMessage({
+                        to : ctrl.from,
+                        message: getMessage(session.softCloseMessage),
+                        instance, privacy
+                    });
+                }
+            })
+
+            var instanceToSendTheAnswer = session.input ?? null, response = null;                        
+            if(instanceToSendTheAnswer && typeof instanceToSendTheAnswer == "function"){
+                await instanceToSendTheAnswer(( ctrl?._data?.listResponse?.singleSelectReply?.selectedRowId ?? ctrl.body));
+            }else{
+                var msg = {
+                    sessionId : session.sessionId,
+                    data : session.data,
+                    params : session.params || {},
+                    response
+                };
+                // detect if it's an order
+                if(message.orderMessage){
+                    if(config.order){
+                        var target = instance.main.meta.flow[config.order];
+                        if(target){
+                            msg.order = await client.getOrderDetails(message.orderMessage.orderId,message.orderMessage.token);
+                            if(isNaN(msg.order.price.total))
+                                msg.order.price.total = 0;
+                            msg.order.products = msg.order.products.map(product=>{
+                                if(isNaN(product.price))
+                                    product.price = 0;
+                                return product;
+                            })
+                            target.message(instance.newmessage(msg));
+                            return;
+                        }else{
+                            instance.throw("Catalog not found");
+                        }
+                    }
+                    session.bye();
+                    return;
+                } else if(!ctrl.cleanBody){
+                    session.bye(true);
+                    return;
+                }
+                // return;
+                var output, params = {}
+                config.outputs.some(id=>{
+                    var target = instance.main.meta.flow[id];
+                    if(!target || !target.config.name || (isUser && !target.config.user) || (isGroup && !target.config.group)) return false;
+                    // must check 
+                    var m = matchstick(target.config.name.toString().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&'));
+                    m = m.match(ctrl.cleanBody.trim());
+                    var ret = !!(m || target.config.name.trim().toUpperCase() == ctrl.cleanBody.trim().toUpperCase());
+                    if(ret){
+                        output = target;
+                        params = m;
+                        msg.params = {
+                            ...msg.params,
+                            ...params
+                        };
+                    }
+                    return ret;
+                }) 
+
+                if(output){
+                    await client.readMessages([message.id]);
+                    await session.setItem("params", msg.params);
+                    // save params to inputs
+                    await session.setItem("inputs",{
+                        ...(session.inputs ?? {}),
+                        ...params
+                    });
+                    // read online stats
+                    var user;
+                    try {
+                        var pref = JSON.parse(fs.readFileSync(PATH.join(databasesPath,"preferences.json")));
+                        user = pref.user;
+                        // if(!user) throw new Error("Can't get User Information");
+                    } catch (error) {
+                    }
+                    if(!user) return instance.throw("Error when read the connected user");
+                    var opt = {};
+                    opt.url = `${pref.mayaHost}/check_user`;
+                    opt.body = JSON.stringify({
+                        "login" : pref.user.login,
+                        "id" : pref.user._id
+                    });
+                    opt.method = "POST";
+                    opt.type = "json";
+                    opt.dnscache = true;
+                    opt.insecure = true;
+                    var sessions = 0;
+                    opt.callback = function(err, response) {
+                        if(!err && response && response.status == 200){
+                            var user = response.body;
+                            user = user.parseJSON();
+                            if(user){
+                                sessions = user.sessions;
+                            }
+                        }
+                        if(sessions > 0){
+                            output.message(instance.newmessage(msg));
+                        }else
+                            instance.throw("No session aviable, please recharge");
+                    };
+                    REQUEST(opt);
+                }else{
+                    session.bye(true);
+                }
+            }
+        });
+    }
+
+    async function createClient(config, status, instance){
+        let b;
+        const { state, saveCreds } = await useMultiFileAuthState(
+          path.join(databasesPath,"baileys",instance.id)
+        );
+        client = makeWASocket({
+          browser: [`Keri Flow ${isElectron ? "App" : "Pro"}`, isElectron ? "Desktop" : "Server", '1.0.14'],
+          auth: state,
+          logger,
+          getMessage : async function getMessage(message) {
+          }
+        });
+        client.ev.on('creds.update', saveCreds)
+
+        await initEvents(config,status,instance,(status)=>createClient(config, status, instance));
+        return client;
+    }
+
+    exports.make = function(instance, config) { 
+        
+        var clientInBuilding = false;
+        var status = {
+            online : false,
+            qr : null,
+            clientId : instance.id,
+            clientInfo : null,
+            message : null,
+            error : null,
+            state : ""
+        };
+
+
+        instance.message = async function($) {
+            if(!client){
+                return instance.throw("Not configured");
+            }
+            if($ && $.data){
+                sendMessageTo($.data.to, $.data.message, $.data.mediaUrl,$.data.privacy,instance);
+            }
+		};
+        instance.trigger = async function() {
+			// disconnect the client
+            if(client && status.online){
+                client.end();
+                status.online = false;
+                config.info = undefined;
+                status.error = null;
+                status.message = null;
+                instance.status(status);
+                client = await createClient(config, status, instance);
+            }
+		};
+		instance.configure = async function() {
+            if(config.name && !client){
+                if(!clientInBuilding){
+                    clientInBuilding = true;
+                    setTimeout(async ()=>{
+                        client = await createClient(config, status, instance);
+                        clientInBuilding = false;
+                    }, 1e3);
+                }
+            }
+		};
+        
+		instance.close = function() {
+            // this instance is closed
+            if(client) client.end();
+            client = undefined;
+		};
+        
+		instance.variables = function(variables) {
+            // FlowStream variables are changed
+		};
+        
+		instance.variables2 = function(variables) {
+            // Global variables are changed
+		};
+
+        instance.status(status);
+		instance.configure();
+
+	};
+
+</script>
+
+<readme>
+## How Connect Your WhatsApp
+
+1. Open WhatsApp on your phone
+2. Tap on **Menu** > **Settings** > and select **Linked Devices**
+3. Tap on **Link a Device**
+4. Point your phone to the QR code
+
+## How handle message
+1. Add a keyword component
+2. Double click on component to open configurations
+3. Choose the keyword added previously
+</readme>
+
+<settings>
+    <div class="padding">
+		<div class="row m">
+            <div class="col-md-8 m">
+                <ui-component name="input" path="?.name" config="type:text;monospace:1;required:1">Name</ui-component>
+			</div>
+            <div class="col-md-4 m">
+        		<ui-component 
+                    name="input" 
+                    path="?.order" 
+                    config="type:select;dirsource:%out_components">
+                    Order process
+                </ui-component>
+                <div class="help">Optional, select the Catalog component.</div>
+			</div>
+            <section class="padding m">
+                <label class="ui-input-label m">Lists Texts</label>
+                <div class="row m">
+                    <div class="col-md-6 m">
+                        <label class="ui-input-label">Select Text</label>
+                        <ui-component name="input" path="?.selectText" config="maxlength:150"></ui-component>
+                    </div>
+                    <div class="col-md-6 m">
+                        <label class="ui-input-label">Action Text</label>
+                        <ui-component name="input" path="?.actionText" config="maxlength:150"></ui-component>
+                    </div>
+                    <div class="col-md-12 m">
+                        <label class="ui-input-label">Answer Text</label>
+                        <ui-component name="input" path="?.answerText" config="maxlength:150"></ui-component>
+                    </div>
+                </div>
+                <ui-component name="input" path="%debugsearch" config="type:search;placeholder:Search keyword"  class="col-md-12 m"></ui-component>
+                <ui-component name="search" path="%debugsearch" config="selector:figure"  class="col-md-12 m">
+                    <ui-component name="selection" path="?.outputs" config="datasource:%route_components;click:figure">
+                        <ui-bind path="%route_components" config="template" class="block listing2 small">
+                            <script type="text/html">
+                                {{ foreach m in value }}
+                                <figure data-search="{{ m.id }} {{m.name}} {{ if m.note }} {{ m.note }}{{ fi }}">
+                                    <section style="margin: 5px;">
+                                        <span class="selection" data-id="{{ m.id }}"><i class="ti ti-check"></i></span> {{m.name}} {{ if m.note }}<span class="gray ml10">{{ m.note }}</span>{{ fi }}
+                                    </section>
+                                </figure>
+                                {{ end }}
+                            </script>
+                        </ui-bind>
+                    </ui-component>
+                </ui-component>
+            </section>
+        </div>
+	</div>
+</settings>
+
+<style>
+	.CLASS footer { padding: 10px; }
+	.CLASS footer div ui-bind { font-family: var(--monospace); }
+	.CLASS footer .method { background-color: var(--color); color: #FFF; padding: 2px 3px; border-radius: var(--radius); }
+	.CLASS header .ti.online ,
+	.CLASS header .ti.offline {
+		background: #e91e63;
+		border-radius: 50%;
+		color: white;
+		padding: 2px;
+		font-size: 100%;
+	}
+	.CLASS header .ti.online {
+		background: #4caf50;
+	}
+    .CLASS footer span.title {
+        font-size: 11px;
+        color: #777;
+    }
+    .CLASS footer span.message {
+        font-size: 13px;
+        text-transform: capitalize;
+        font-variant: small-caps;
+        color: #414141;
+    }
+
+    .CLASS footer span.error {
+        font-size: 13px;
+        text-transform: capitalize;
+        font-variant: small-caps;
+        color: rgb(150, 28, 28);
+    }
+</style>
+
+<script>
+
+	// Client-side script
+	// Optional, you can remove it
+
+	// A custom helper for the component instances
+	// The method below captures each instance of this component
+	TOUCH(function(exports, reInit) {
+
+		var name = exports.name + ' --> ' + exports.id;
+
+
+		exports.settings = function(meta) {
+
+            var arr = [];
+
+            for (var key in flow.data) {
+                var tmp = flow.data[key];
+                if (tmp.Component && tmp.Component.id ==  "flow_route.total")
+                    arr.push({
+                        id: key, 
+                        name: tmp.config.name ? tmp.config.name : tmp.Component.name, 
+                        note : tmp.note,
+                        group : false,
+                        groupid : null,
+                        user : false,
+                    });
+            }
+
+            SET('%route_components', arr);
+
+            var orders = [{
+                id: "",
+                name : "No Catalog"
+            }];
+
+            for (var key in flow.data) {
+                var tmp = flow.data[key];
+                if (tmp.Component && tmp.config.name && tmp.Component.name === 'Catalog' && key !== exports.id){
+                    orders.push({ id: key, name: tmp.config.name });
+                }
+            }
+
+            SET('%out_components', orders);
+        };
+
+		exports.configure = function(config, isInit) {
+			// Triggered when the config is changed
+			UPD('flow.data');
+		};
+
+		exports.status = function(status, isInit) {
+			// Triggered when the status is changed
+		};
+
+		exports.note = function(note, isInit) {
+			// Triggered when the note is changed
+		};
+
+		exports.variables = function(variables) {
+			// Triggered when the variables are changed
+		};
+
+		exports.variables2 = function(variables) {
+			// Triggered when the variables2 are changed
+		};
+
+		exports.close = function() {
+			// Triggered when the instance is closing due to some reasons
+		};
+
+	});
+</script>
+
+<body>
+	<header>
+		<i class="ICON"></i>
+        <ui-bind path="STATUS" config="template">
+        {{ if value?.clientInfo }}
+            <ui-bind path="STATUS.clientInfo" config="text:value ? ('+'+value) : 'NAME'"></ui-bind>
+        {{else}}
+            <ui-bind path="CONFIG.name" config="text:value ? value : 'NAME'"></ui-bind>
+        {{ fi }}
+        </ui-bind>
+	</header>
+	<footer>
+        <ui-bind path="STATUS" config="template" style="
+			flex:1;
+		">
+        {{ if value?.error }}
+            <span class="error" data-bind="STATUS.error__text:value"></span>
+        {{else}}
+            {{ if value?.message }}
+                <span class="message" style="border: none;" data-bind="STATUS.message__text:value"></span>
+            {{else}}
+                {{ if value?.online }}
+                    <button class="exec button" data-exec="FUNC.trigger">Disconnect</button>
+                {{else}}
+                    {{ if value?.qr }}
+                        <span class="title">Scan QRCode to connect</span><br>
+                        <img style="width: 100%;" data-bind="STATUS.qr__src:value" />
+                    {{else}}
+                        <ui-bind path="CONFIG.name" config="text:value ?'Not connected' : 'Not configured'"></ui-bind>
+                    {{ fi }}
+                {{ fi }}
+            {{ fi }}
+        {{ fi }}
+    </ui-bind>
+        </footer>
+</body>
+ 

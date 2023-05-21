@@ -1,0 +1,123 @@
+<script component>
+
+	exports.name = 'Flashback';
+	exports.group = 'Triggers';
+	exports.version = '4';
+	exports.icon = 'ti ti-history';
+	exports.author = 'Peter Širka & Jakub Urban';
+	exports.inputs = [{ id: 'input', name: 'Input' }];
+	exports.outputs = [{ id: 'output', name: 'Output' }];
+  exports.meta = {readonly: true, remove: false};
+	const SharedMemory = REQUIRE('definitions/shared.js');
+
+	exports.make = function(instance, config) {
+
+		var empty = true;
+		var status = { empty: true, data: null };
+		var timeout = null;
+
+		function serializer(key, value) {
+			return value && value.type === 'Buffer' && value.data ? ('<Buffer ' + value.data.slice(0, 10).map(n => n.toString(16).padLeft(2, '0')).join('') + '...') : value;
+		}
+
+		instance.message = async function($) {
+      var data = $.data || $;
+			var session = new SharedMemory($);
+      await session.ready;
+			if(!(session.sessionId && session.reply && typeof session.reply == "function")){
+				session.bye(true);
+      }else{
+        data = session.data;
+      }
+
+			status.empty = false;
+			status.data = CLONE(data);
+			status.repo = CLONE($.repo||{});
+
+			$.send('output');
+
+			if (timeout) {
+				clearTimeout(timeout);
+				timeout = null;
+			}
+
+			timeout = setTimeout(() => {
+				timeout = null;
+				instance.status(JSON.stringify(status.data, serializer));
+			}, 500);
+
+		};
+
+		instance.trigger = function(msg) {
+			if (msg.type === 'clear') {
+				status.data = null;
+				status.repo = null;
+				status.empty = true;
+				instance.status(JSON.stringify(status.data));
+			} else {
+				var message = instance.newmessage(CLONE(status.data));
+				message.repo = CLONE(status.repo || {});
+				message.send('output');
+			}
+		};
+
+		instance.status(status);
+
+	};
+
+</script>
+
+<readme>
+The component remembers the data for repeating the action.
+</readme>
+
+<style>
+	.CLASS { max-width: 250px; min-width: 150px; }
+	.CLASS .padding { padding: 0 10px 10px; }
+	.CLASS pre { font-size: 10px; margin: 0; padding: 5px; background-color: #F0F0F0; border-radius: var(--radius); }
+	.CLASS footer { padding: 10px; }
+	.CLASS .json { white-space: pre; }
+	.CLASS .readme { position: absolute; position: absolute; font-size: 11px; right: 5px; margin-top: -5px; cursor: pointer; }
+	.CLASS .noscrollbar { max-height: 250px; }
+	.ui-dark .CLASS pre { background-color: #404040; tab-size: 2; }
+</style>
+
+<body>
+	<header>
+		<i class="ICON"></i>NAME
+		<button class="exec button hidden" data-exec="FUNC.fflashback_clear"><ui-bind path="STATUS.empty" config="hide"></ui-bind>Clear</button>
+	</header>
+	<div class="padding">
+		<button class="exec button" data-exec="FUNC.trigger"><ui-bind path="STATUS.empty" config="disabled" disabled></ui-bind>Repeat</button>
+	</div>
+	<footer is="is-footer" path="!STATUS" config="html pre:Thelpers.jsonformat(JSON.stringify(JSON.parse(value), null, '\t'));show:value && value.length > 0" class="hidden selectable">
+		<span class="readme" title="Open in new window"><i class="ti ti-window"></i></span>
+		<div class="noscrollbar">
+			<pre class="json"></pre>
+		</div>
+	</footer>
+</body>
+
+<script>
+
+	FUNC.fflashback_clear = function(el) {
+		SETTER('websocket/send', { TYPE: 'trigger', id: el.attrd2('id'), type: 'clear' });
+	};
+
+	TOUCH(function(exports, reinit) {
+
+		if (reinit)
+			return;
+
+		var laststatus;
+
+		exports.status = function(status, isinit) {
+			laststatus = status;
+		};
+
+		exports.element.on('click', '.readme', function() {
+			FUNC.readme('Flashback', '```json\n' + JSON.stringify(JSON.parse(laststatus), null, '  ') + '\n```');
+		});
+
+	});
+</script>

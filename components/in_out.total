@@ -1,0 +1,218 @@
+<script component>
+
+	exports.name = 'Link';
+	exports.icon = 'ti ti-link';
+	exports.author = 'Total.js';
+	exports.version = '1';
+	exports.group = 'Flow';
+	exports.config = { type: 'input', target: '', name: '', color: '#B9261A', is: false };
+	exports.meta = {readonly: true, remove: false};
+	exports.make = function(instance, config) {
+
+		instance.message = function($) {
+
+			if (config.type === 'output') {
+				$.send('output');
+				return;
+			}
+
+			if (config.target) {
+				var target = instance.main.meta.flow[config.target];
+				if (target) {
+					$.toid = target.id;
+					$.instance = target;
+					target.message($);
+					return;
+				}
+			}
+
+			$.destroy();
+		};
+
+		instance.configure = function() {
+
+			config.is = config.name || config.target ? true : false;
+
+			var inputs = [];
+			var outputs = [];
+			var is = false;
+
+			switch (config.type) {
+				case 'input':
+					var target = config.target ? instance.main.meta.flow[config.target] : null;
+						inputs.push({ id: 'input', name: `<i class="ti ti-link"></i> .. {target ? target.config.name : 'Input'}` });
+					break;
+				case 'output':
+					outputs.push({ id: 'output', name: `${config.name} <i class="ti ti-link"></i> ` });
+					break;
+			}
+
+			var jsoninputs = JSON.stringify(instance.inputs || EMPTYARRAY);
+			var jsonoutputs = JSON.stringify(instance.outputs || EMPTYARRAY);
+
+			if (JSON.stringify(inputs) !== jsoninputs) {
+				is = true;
+				instance.inputs = inputs;
+			}
+
+			if (JSON.stringify(outputs) !== jsonoutputs) {
+				is = true;
+				instance.outputs = outputs;
+			}
+
+			is && instance.save();
+		};
+
+		instance.close = function(destroyed) {
+			if (!destroyed || config.type === 'input')
+				return;
+
+			var meta = instance.main.meta;
+			for (var key in meta.flow) {
+				var tmp = meta.flow[key];
+				if (tmp.component) {
+					var com = meta.components[tmp.component];
+					if (com &&
+						com.name === 'Link' && tmp.config.type === 'input' && tmp.config.target === instance.id)
+						tmp.reconfigure({ target: '' });
+				}
+			}
+		};
+
+		instance.configure();
+
+	};
+
+</script>
+
+<readme>
+The component can teleport (input) message to another teleport (output) component.
+</readme>
+
+<style>
+	.CLASS .content { min-height: 10px; min-width: 50px; border-radius: var(--radius) var(--radius) 0 0; }
+	.CLASS .input, .CLASS .output { border-top-color: transparent; }
+	.CLASS .inputs, .CLASS .outputs { text-align: center; }
+	.CLASS .colorbar { height: 10px; }
+	.CLASS span { pointer-events: none; }
+	.CLASS-settings figure { cursor: pointer; }
+	.CLASS-settings .item { line-height: 28px; font-size: 12px; background-color: #F8F8F8; border-radius: var(--radius); margin-bottom: 2px; padding: 0 10px; cursor: pointer; }
+	.CLASS-settings .item.selected { background-color: #E8E8E8; }
+	.ui-dark .CLASS-settings .item { background-color: #333; }
+	.ui-dark .CLASS-settings .item.selected { background-color: #404040; }
+</style>
+
+<settings>
+	<div class="CLASS-settings padding">
+
+		<ui-bind path="?.is" config="hide" class="block">
+			<ui-component name="choose" path="?.type" config="selector:div" class="iconmenu m">
+				<div data-id="input">
+					<i class="ti ti-send"></i>
+					<span>Send</span>
+				</div>
+				<div data-id="output">
+					<i class="ti ti-link"></i>
+					<span>Receive</span>
+				</div>
+			</ui-component>
+		</ui-bind>
+
+		<ui-bind path="?.type" config="show:value=='output'" class="hidden block">
+			<div class="row">
+				<div class="col-md-9 m">
+					<ui-component name="input" path="?.name" config="required:1">Name</ui-component>
+				</div>
+				<div class="col-md-3 m">
+					<ui-component name="input" path="?.color" config="type:color">Color</ui-component>
+				</div>
+			</div>
+		</ui-bind>
+
+		<ui-bind path="?.type" config="show:value=='input'" class="block">
+			<div class="caption m">
+				<label>Where to send data?</label>
+			</div>
+			<ui-component name="choose" path="?.target" config="selector:.item">
+				<ui-bind path="%teleportinstances" config="template:.item -> data-id" class="listing block">
+					<script type="text/html">
+						{{ foreach m in value }}
+						<div class="item" data-id="{{ m.id }}"><i class="ti ti-crosshairs mr5"></i>{{ m.name }}</div>
+						{{ end }}
+					</script>
+				</ui-bind>
+			</ui-component>
+		</ui-bind>
+	</div>
+</settings>
+
+<body>
+	<ui-component name="watcher" path="CONFIG">
+		<script type="text/js">
+			component.watcherbackup && component.unwatch(component.watcherbackup);
+			var defcolor = '#888';
+			var deftext = 'Not configured';
+			var el = element.closest('.area');
+			if (value.type ==='input') {
+				if (value.target) {
+					var target = 'flow.config.' + value.target;
+					EEE = el.find('.inputs span');
+					component.watch(target, function(path, config) {
+						var conf = config || EMPTYOBJECT;
+						el.find('.content').css('background', conf.color || defcolor);
+						el.find('.inputs span').html(`<i class="ti ti-link"></i> ${conf.name || deftext}`);
+					}, true);
+				} else {
+					el.find('.content').css('background', defcolor);
+					el.find('.inputs span').html(deftext);
+				}
+				component.watcherbackup = target;
+			} else {
+				el.find('.content').css('background', value.color || defcolor);
+			}
+		</script>
+	</ui-component>
+</body>
+
+<script>
+
+	TOUCH(function(exports, reinit) {
+
+		exports.settings = function(meta) {
+
+			var arr = [];
+
+			for (var key in flow.data) {
+				var tmp = flow.data[key];
+				if (tmp.Component && tmp.Component.name === 'Link' && tmp.config.type === 'output' && key !== exports.id)
+					arr.push({ id: key, name: tmp.config.name });
+			}
+
+			SET('%teleportinstances', arr);
+		};
+
+		exports.configure = function() {
+
+			var changes = exports.instance.changes;
+			if (changes && changes.newbie) {
+
+				var config = exports.config;
+				var inputs = [];
+				var outputs = [];
+
+				if (config.type === 'input') {
+					var target = flow.data[config.target];
+					inputs.push({ id: 'input', name: `<i class="ti ti-link"></i> {target ? target.config.name : 'Input'}` });
+				} else
+					outputs.push({ id: 'output', name: `${config.name} <i class="ti ti-link"></i>` });
+
+				exports.instance.outputs = outputs;
+				exports.instance.inputs = inputs;
+				UPD('flow.data');
+			}
+
+		};
+
+	});
+
+</script>

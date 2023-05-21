@@ -1,0 +1,343 @@
+<script component>
+
+	exports.name = 'API Request';
+	exports.group = 'Services';
+	exports.version = '4';
+	exports.icon = 'ti ti-earth';
+	exports.author = 'Badinga Ulrich';
+	exports.config = { 
+		url: '', 
+		method: 'GET', 
+		dnscache: true, 
+		insecure: false, 
+		nocookies: true, 
+		xhr: false, 
+		parse: true, 
+		timeout: 10000, 
+		limit: 1024 * 500, 
+		responsebody: true, 
+		headers: {}, 
+		cookies: {}, 
+		serialize: null, 
+		send: 'all',
+		path: '',
+        pathSend: 'request',
+        hasCode : false,
+        code: [
+            "// data {Object};",
+            "// send('default', data); // or simply send(data); which uses the first output",
+            "// send('1', data); // to send a specific menu",
+            "return {};"
+        ].join("\n")
+	};
+	exports.inputs = [{ id: 'payload', name: 'Payload' }];
+	exports.outputs = [{ id: 'response', name: 'Response' }, { id: 'error', name: 'Error' }];
+	exports.meta = {readonly: true, remove: false};
+
+	const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+
+	var getValueFromPath = function(path,data) {
+        path = (Array.isArray(path) ? path : path.toString().split('.'))
+            .filter(x=>typeof x == "string" && x);
+        // if(path.length == 0 || typeof data != 'object') return data;
+        var obj = data;
+        for (var m of path) {
+            obj = obj[m];
+            if (typeof obj != "object" && obj === undefined)
+                return null;
+        }
+        return obj;
+    };
+    var setValueFromPath = function(path,data,value) {
+        path = (Array.isArray(path) ? path : path.toString().split('.')).filter(x=>typeof x == "string" && x);
+        if(path.length == 0 || typeof data != 'object') return value;
+        var obj = data;
+        for (var m of path.slice(0,path.length-1)) {
+            if (typeof obj[m] != "object"){
+                obj[m] = {};
+            }
+            obj = obj[m]
+        }
+        obj[path.pop()] = value;
+        return data;
+    };
+
+	exports.make = function(instance, config) {
+        var init = ()=>{};
+
+		instance.trigger = function() {
+			instance.message(instance.newmessage({}));
+		};
+        instance.configure = function(){
+            if(config.hasCode && config.code.trim()){
+                init = new Function("data, session , variables",`return (async ()=>{;\n${config.code};\n})();`);
+            }else
+                init = (data, session , variables)=>getValueFromPath(config.path, {data,session,variables});
+        }
+		instance.message = async function($) {
+
+            if( 
+                !(config.url)
+            ) return instance.throw("Component not configured");
+
+            var session = new SharedMemory($);
+            await session.ready;
+            if(!(session.sessionId && session.reply && typeof session.reply == "function")){
+                session = SharedMemory.empty;
+								session.data = $.data ?? $;
+            }
+			var opt = {};
+
+			for (var key in config.headers) {
+				if (!opt.headers)
+					opt.headers = {};
+				opt.headers[$.variables(key, true)] = $.variables(config.headers[key], true);
+			}
+
+			for (var key in config.cookies) {
+				if (!opt.cookies)
+					opt.cookies = {};
+				opt.cookies[$.variables(key, true)] = $.variables(config.cookies[key], true);
+			}
+
+			opt.method = $.variables(config.method, true);
+			opt.url = $.variables(config.url, true);
+			opt.cook = true;
+
+			if (config.serialize) {
+				var $data = await init(
+                    session.data,
+                    session,
+                    {...$.main.variables2,...$.main.variables,}
+                );
+				switch (config.serialize) {
+
+					case 'json':
+						opt.type = 'json';
+						if (opt.method !== 'GET' && $data)
+							opt.body =  JSON.stringify($data);
+						break;
+
+					case 'urlencoded':
+						opt.type = 'urlencoded';
+						if (opt.method === 'GET' && $data)
+							opt.query = U.toURLEncode($data);
+						else if($data)
+							opt.body = U.toURLEncode($data);
+						break;
+
+					case 'buffer':
+						opt.type = 'raw';
+                        if($data)
+    						opt.body = $data;
+						break;
+
+				}
+			}
+
+			if (config.dnscache)
+				opt.dnscache = true;
+
+			if (config.insecure)
+				opt.insecure = true;
+
+			if (config.nocookies)
+				opt.nocookies = true;
+
+			if (config.xhr)
+				opt.xhr = true;
+
+			if (config.timeout)
+				opt.timeout = config.timeout;
+
+			if (config.limit)
+				opt.limit = config.limit;
+
+			if (config.send === 'chunks')
+				opt.custom = true;
+
+			opt.callback = function(err, response) {
+
+				if (err) {
+					$.data = setValueFromPath(config.pathSend,$.data,{ err });
+					$.send('error');
+					return;
+				}
+
+				if (opt.custom) {
+					response.stream.on('data', data =>{
+						$.data = setValueFromPath(config.pathSend,$.data,{ data });
+						$.send('response')
+					});
+					return;
+				}
+
+				if (config.send === 'headers') {
+					$.data = setValueFromPath(config.pathSend,$.data,{ status: response.headers });
+					$.send('response');
+					return;
+				}
+
+				if (config.send === 'status') {
+					$.data = setValueFromPath(config.pathSend,$.data,{ status: response.status });
+					$.send('response');
+					return;
+				}
+
+				body = response.body;
+
+				if (config.parse) {
+					var type = response.headers['content-type'] || '';
+					if (type) {
+						var index = type.lastIndexOf(';');
+						if (index !== -1)
+							type = type.substring(0, index).trim();
+					}
+					switch (type.toLowerCase()) {
+						case 'text/xml':
+						case 'application/xml':
+							body = body ? body.parseXML(true) : {};
+							break;
+						case 'application/x-www-form-urlencoded':
+							body = body ? DEF.parsers.urlencoded(body) : {};
+							break;
+						case 'application/json':
+						case 'text/json':
+							body = body ? body.parseJSON(true) : null;
+							break;
+						default:
+							body = body && body.isJSON() ? body.parseJSON(true) : body;
+							break;
+					}
+				}
+
+				switch (config.send) {
+					case 'all':
+						$.data = setValueFromPath(config.pathSend,$.data,{ headers: response.headers, cookies: response.cookies, status: response.status, host: response.host, body: body });
+						break;
+					case 'response':
+						$.data = setValueFromPath(config.pathSend,$.data,{ body: body });
+						break;
+				}
+				$.send('response');
+			};
+
+			REQUEST(opt);
+		};
+        instance.configure();
+	};
+
+</script>
+
+<style>
+	.CLASS .status { font-size: 12px; margin: 0; padding: 10px; overflow-wrap: break-word; }
+	.CLASS .status span { padding: 2px 3px; border-radius: var(--radius); color: #FFF; }
+</style>
+
+<readme>
+The component makes a HTTP request. The response data will be serialized as the payload.
+
+__Response__:
+
+```json
+{
+	status: Number,
+	headers: { key: value },
+	cookies: { key: value },
+	host: String,
+	body: String/Object/Buffer
+}
+```
+</readme>
+
+<body>
+	<header>
+		<i class="ICON"></i>NAME
+	</header>
+	<footer class="hidden">
+		<ui-bind path="CONFIG.url" config="show">
+			<ui-bind path="CONFIG" config="template">
+				<div class="status">
+					<script type="text/html">
+						<div class="monospace"><span style="background:{{ value.method | color }}">{{ value.method }}</span> {{ value.url }}</div>
+					</script>
+				</div>
+			</ui-bind>
+		</ui-bind>
+	</footer>
+</body>
+
+<settings>
+	<div class="padding">
+		<div class="message message-alert">Method, URL address, headers and Cookies support dynamic variables. Variables are read from global Variables <code class="b">{key}</code> and from the message data <code class="b">{data.key}</code></div>
+	</div>
+	<div class="padding bg-smoke npb">
+
+		<div class="row">
+			<div class="col-md-3 m">
+				<ui-component name="input" path="?.method" config="dirsource:GET|GET,POST|POST,PUT|PUT,DELETE|DELETE,PATCH|PATCH,API|API;required:1">Method</ui-component>
+			</div>
+			<div class="col-md-9 m">
+				<ui-component name="input" path="?.url" config="required:1"><b>URL address</b></ui-component>
+			</div>
+		</div>
+	</div>
+	<div class="padding">
+		<div class="row">
+			<div class="col-md-3 m">
+				<ui-component name="input" path="?.timeout" config="type:number">Timeout</ui-component>
+				<div class="help"><i class="ti ti-clock"></i><ui-bind path="?.timeout" config="text:((value||0)/1000).floor(2)+' sec.'"></ui-bind><br />Timeout <b>in milliseconds</b></div>
+			</div>
+			<div class="col-md-3 m">
+				<ui-component name="input" path="?.limit" config="type:number">Max. size</ui-component>
+				<div class="help"><i class="ti ti-calculator"></i><ui-bind path="?.limit" config="text:(value||0).filesize()"></ui-bind><br />Response max. size <b>in bytes</b></div>
+			</div>
+			<div class="col-md-4 m">
+				<ui-component name="input" path="?.send" config="required:1;dirsource:all|Everything,response|Response body,chunks|Chunks of buffer,headers|Headers only,status|Status code">Send to output</ui-component>
+			</div>
+		</div>
+	</div>
+	<hr class="nmt nmb" />
+    <ui-bind path="?.hasCode" config="template" class="padding row">
+        <script type="text/html">
+            {{ if value }}
+            <div class="col-md-12 m">
+                <ui-component name="input" path="?.pathSend" config="monospace:1">Property/field to store request response data</ui-component>
+                <div class="help">Optional. The property/field to store response before send next node</div>
+            </div>
+            <div class="col-md-12">
+                <ui-component name="input" path="?.hasCode" config="type:checkbox">With Code</ui-component>
+            </div>
+            <div class="col-md-12 m">
+                <div class="ui-input-label">Javascript Code:</div>
+                <ui-component name="codemirror" path="?.code" config="type:javascript;height:250;parent:auto;margin:30;tabs:true;trim:true" class="m"></ui-component>
+            </div>
+            {{ else }}
+                <div class="col-md-6 m">
+                    <ui-component name="input" path="?.path" config="placeholder:path.to.property;monospace:1">Load data from the specific property/field</ui-component>
+                    <div class="help">Optional. The data will be loaded from the specific property/field.</div>
+                </div>
+                <div class="col-md-6 m">
+                    <ui-component name="input" path="?.pathSend" config="monospace:1">Property/field to store request response data</ui-component>
+                    <div class="help">Optional. The property/field to store response before send next node</div>
+                </div>
+                <div class="col-md-12">
+                    <ui-component name="input" path="?.hasCode" config="type:checkbox">With Code</ui-component>
+                </div>    
+            {{ fi }}
+        </script>
+    </ui-bind>
+	<hr class="nmt nmb" />
+	<div class="padding">
+		<ui-component name="input" path="?.serialize" config="dirsource:json|JSON,urlencoded|URL encode,buffer|Buffer;dirraw:1;placeholder:Choose serialization;dirempty:None" class="m">Data serialization</ui-component>
+		<ui-component name="keyvalue" path="?.headers" config="placeholderkey:Header name;placeholdervalue:Header value and press enter">Headers</ui-component>
+		<div class="help m">Headers support dynamic variables in the form <code>{key}</code></div>
+		<ui-component name="keyvalue" path="?.cookies" config="placeholderkey:Cookie name;placeholdervalue:Cookie value and press enter">Cookies</ui-component>
+		<div class="help m">Cookies support dynamic variables in the form <code>{key}</code></div>
+		<hr />
+		<ui-component name="input" path="?.parse" config="type:checkbox">Parse Response to Object</ui-component>
+		<ui-component name="input" path="?.dnscache" config="type:checkbox">Enable DNS cache</ui-component>
+		<ui-component name="input" path="?.insecure" config="type:checkbox">Allow insecure connection</ui-component>
+		<ui-component name="input" path="?.xhr" config="type:checkbox">Add XHR header</ui-component>
+	</div>
+</settings>

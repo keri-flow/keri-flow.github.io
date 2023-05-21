@@ -1,0 +1,156 @@
+<script component>
+
+	exports.name = 'Keyword';
+	exports.icon = 'ti ti-bullseye-arrow';
+	exports.author = 'Oshimin Labs';
+	exports.version = '1';
+	exports.group = 'Flow';
+	exports.config = {
+        name: '', 
+        color: '#B9261A',
+        group : false,
+        user : true,
+
+        welcome : "Welcome message",
+        bye : "Bye Message",
+        forceClose : "Session closed"
+    };
+    exports.meta = {readonly: true, remove: false};
+    exports.outputs = [{ id: 'output', name: '<i class="fab fa-keycdn"></i> Output', type: 'transform'  }];
+    exports.inputs = [];
+    exports.npm = [];
+    const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+		function matchstick(path) {
+        return {
+            // create regex
+            path: new RegExp("^" + path.trim().replace(/[ ]+/g," ").replace(/\{[^\s/]+\}/g, '([\\w-]+)') + "$","im"),
+            keys: path.match(/\{[^\s/]+\}/g)?.map(e=>e.replace(/(\{|\})/g,"")),
+            match(text){
+                var i = 0;
+                return text?.trim().replace(/[ ]+/g," ").match(this.path)?.splice(1).reduce((ret, el)=>{
+                    ret[this.keys[i++]] = el;
+                    return ret;
+                },{});
+            }
+        };
+    }
+	exports.make = function(instance, config) {
+
+		instance.message = async function($) {
+            var session = new SharedMemory($);
+            await session.ready;
+			await session.setItem("forceCloseMessage", config.forceClose);
+			await session.setItem("softCloseMessage" ,config.bye);
+			if(!session.welcome && session.sayWelcome){
+				await session.sayWelcome(config.welcome);
+				await new Promise(ok=>setTimeout(ok,500)); // wait for 0.5s
+			}
+            if(session.sessionId){
+                instance.send('output', $);
+            }else{
+                instance.throw("Invalid message");
+            }
+		};
+
+		instance.configure = function() {
+			instance.outputs = [{ id: 'output', name: `<i class="fab fa-keycdn"></i> ${config.name || "Output"}` }];
+		};
+
+		instance.close = function(destroyed) {
+		};
+
+		instance.configure();
+
+	};
+
+</script>
+
+<readme>
+## WhatsApp Keywrord
+
+### Static
+
+The whatsapp keyword can be juste a word,  or a sentence, eg. `buy`, `delivery`, `location`.
+
+### Dynamic
+
+WhatsApp keyword can be dynamic, so can handle multiple cases, for example: `buy {item}`, `delivery {district}`, `remittance {operator} {customer}`.
+The dynamic part must be enclosed in braces `{` and `}`.
+
+</readme>
+
+<style>
+	.CLASS .content { min-height: 10px; min-width: 50px; border-radius: var(--radius) var(--radius) 0 0; }
+	.CLASS .input, .CLASS .output { border-top-color: transparent; }
+	.CLASS .inputs, .CLASS .outputs { text-align: center; }
+	.CLASS .colorbar { height: 10px; }
+	.CLASS span { pointer-events: none; }
+	.CLASS-settings figure { cursor: pointer; }
+	.CLASS-settings .item { line-height: 28px; font-size: 12px; background-color: #F8F8F8; border-radius: var(--radius); margin-bottom: 2px; padding: 0 10px; cursor: pointer; }
+	.CLASS-settings .item.selected { background-color: #E8E8E8; }
+	.ui-dark .CLASS-settings .item { background-color: #333; }
+	.ui-dark .CLASS-settings .item.selected { background-color: #404040; }
+</style>
+
+<settings>
+	<div class="CLASS-settings padding">
+        <div class="row">
+            <div class="col-md-12 m">
+                <ui-component name="input" path="?.name" config="required:1">Name</ui-component>
+            </div>
+            <div class="col-md-4 m">
+                <ui-component name="input" path="?.color" config="type:color"></ui-component>
+            </div>
+            <div class="col-md-4 m">
+        		<ui-component name="input" path="?.user" config="type:checkbox">Reply to User</ui-component>		
+			</div>
+            <div class="col-md-4 m">
+        		<ui-component name="input" path="?.group" config="type:checkbox">Reply to Groups</ui-component>		
+			</div>
+        </div>
+		<div class="row m">
+			<div class="col-md-12 m">
+				<label class="ui-input-label">Welcome Message</label>
+				<ui-component name="input" path="?.welcome" config="maxlength:150"></ui-component>
+			</div>
+			<div class="col-md-12 m">
+				<label class="ui-input-label">Bye Message</label>
+				<ui-component name="input" path="?.bye" config="maxlength:150"></ui-component>
+			</div>
+			<div class="col-md-12 m">
+				<label class="ui-input-label">Force Bye Message</label>
+				<ui-component name="input" path="?.forceClose" config="maxlength:150"></ui-component>
+			</div>
+		</div>
+	</div>
+</settings>
+
+<body>
+	<ui-component name="watcher" path="CONFIG">
+		<script type="text/js">
+			var defcolor = '#888';
+			var deftext = 'Not configured';
+			var el = element.closest('.area');
+            el.find('.content').css('background', value.color || defcolor);
+            el.find('.inputs span').html('<i class="fab fa-whatsapp"></i> '+(value.name || deftext));
+		</script>
+	</ui-component>
+</body>
+
+<script>
+
+	TOUCH(function(exports, reinit) {
+
+		exports.settings = function(meta) {
+
+			
+		};
+
+		exports.configure = function() {
+			exports.instance.outputs = [{ id: 'output', name: `<i class="fab fa-keycdn"></i> ${exports.config.name || "Output"}` }];
+			UPD('flow.data');
+		};
+
+	});
+
+</script>

@@ -1,0 +1,411 @@
+<script component>
+    exports.name = 'Input';
+    exports.group = 'Flow';
+    exports.icon = 'ti ti-pencil';
+    exports.version = '1';
+    exports.meta = {readonly: true, remove: false};
+    exports.config = {
+        message: "Input title" ,
+        messageErrorLeft: "Bad input value" ,
+        messageErrorRight: "Bad input value" ,
+        name : "input",
+        type : "TEXT",
+        pattern : ".*",
+        values : {},
+        maxlength : 20,
+        maxtry : 3,
+        min : 0,
+        max : 10000,
+        mediaUrl : "",
+        hasMedia : false,
+        hasCode : false,
+        code: [
+            "// data {Object};",
+            "// -- send data to output with `send( data);`",
+        ].join()
+    };
+    exports.inputs = [{ id: 'input', name: 'TEXT' }];
+    exports.outputs = [{ id: 'default', name: 'Output' }];
+    
+    const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+
+    exports.make = function(instance, config) {
+        var init = ()=>{};
+        var templates = {};
+        var types = "TEXT|TEXT,SELECT|SELECT,PHONE|PHONE,NUMBER|NUMBER,EMAIL|EMAIL".split(',').reduce((types, type)=>{
+            type =type.split("|");
+            types[type[0]] = type[1];
+            return types;
+        },{})
+        instance.message = async function($) {
+            var session = new SharedMemory($);
+            await session.ready;
+            if(!(session.sessionId && session.reply && typeof session.reply == "function")){
+                return instance.throw("Invalid message");
+            }
+            var hasDefaultConnection = !!instance.connections["default"];
+            var getPort = (idNext, getPort)=>{
+                var goto = Object.entries(instance.connections).find(([id,o])=>id.toString().toLowerCase() == idNext.toString().toLowerCase())
+                if(goto){
+                    return goto[getPort ? 1 : 0];
+                }
+            }
+            var end = async (message) => {
+                await session.setItem("input",null);  // clear answer handler
+                session.reply(message.trim(),null,null,`${templates['MEDIA']({
+                    data : session.data ?? {},
+                    session : session,
+                    variables : {...instance.main.variables2,...instance.main.variables,}
+                })}`);
+            }
+            var con = async (message)=>{
+                await session.setItem("input", async function (response) {
+                    // console.log("HANDLE ANSWER", response)
+                    //validate data type
+                    var type = types[config.type] ??  'TEXT';
+                    var $data = {
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    };
+                    switch (type) {
+                        case "PHONE":
+                            // remove spaces
+                            response = response.split(/\s/).join(""); 
+                            try{
+                                var reg = /^(\+[1-9][0-9]{0,2})?\d{1,11}$/;
+                                if(!reg.test(response))
+                                    return showMenu(`${templates['TITLE']($data)}\n\n${config.messageErrorRight}`, true);
+                            }catch(e){
+                                return showMenu(`${templates['TITLE']($data)}\n\n${config.messageErrorRight}`, true);   
+                            }
+                        case "TEXT":
+                            // test length
+                            if(config.maxlength && response.length > Math.floor(`${config.maxlength}`)) {
+                                return showMenu(`${templates['TITLE']($data)}\n\n${config.messageErrorLeft}`, true);   
+                            }
+                            try{
+                                if(config.pattern && !(new RegExp(config.pattern).test(response)))
+                                    return showMenu(`${templates['TITLE']($data)}\n\n${config.messageErrorRight}`, true);
+                            }catch(e){
+                                return showMenu(`${templates['TITLE']($data)}\n\n${config.messageErrorRight}`, true);   
+                            }
+                            break;
+                        case "NUMBER":
+                            response = Math.floor(response.replace(/,/g,".").split(/(\s,_)+/).join(""));
+                            if(isNaN(response)){ // return minimum error if is not a number
+                                return showMenu(`${templates['TITLE']($data)}\n\n${config.messageErrorLeft}`, true);
+                            }
+                            // test min
+                            if(response < Math.floor(`${config.min}`)) {
+                                return showMenu(`${templates['TITLE']($data)}\n\n${config.messageErrorLeft}`, true);   
+                            }
+                            // test max
+                            if(response > Math.floor(`${config.max}`)) {
+                                return showMenu(`${templates['TITLE']($data)}\n\n${config.messageErrorRight}`, true);   
+                            }
+                            break;
+                        case "EMAIL":
+                            try{
+                                var reg = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/;
+                                // console.log("TEST EMAIL",response,reg.test(response.trim()));
+                                if(!reg.test(response.trim()))
+                                    return showMenu(`${templates['TITLE']($data)}\n\n${config.messageErrorLeft}`, true);
+                            }catch(e){
+                                return showMenu(`${templates['TITLE']($data)}\n\n${config.messageErrorLeft}`, true);   
+                            }
+                            response = response.trim().toLowerCase();
+                            break;
+                        case "SELECT":
+                            response = Math.floor(response);
+                            if(isNaN(response)){ // return error if is not a number
+                                return showMenu(`${templates['TITLE']($data)}\n\n${config.messageErrorLeft}`, true);
+                            }
+                            // test if value is between [1, values.length]
+                            if(response < 1 || response > Object.keys(config.values).length) {
+                                return showMenu(`${templates['TITLE']($data)}\n\n${config.messageErrorLeft}`, true);   
+                            }
+                            response = Object.keys(config.values)[response];
+                            response = config.values[response];
+                            break;
+                    }
+                    // save inputs
+                    await session.setItem("inputs",{
+                        ...(session.inputs ?? {}),
+                        [config.name] : response
+                    });
+                    if(await execInit()) return;
+                    if(Object.keys(instance.connections).length == 1 && hasDefaultConnection){
+                        // check if the only connection is default
+                        return send("default"); // pass data
+                    }else{
+                        return end();
+                    }
+                });
+                session.reply(message.trim(),true,null,`${templates['MEDIA']({
+                    data : session.data ?? {},
+                    session : session,
+                    variables : {...instance.main.variables2,...instance.main.variables,}
+                })}`);
+            }
+            var showMenu = async (askMessage, error)=>{
+                var count = !session.try ? 1 : (session.try+1);
+                if(error){
+                    if(session.try > config.maxtry){
+                        return end("Too many error");
+                    }
+                }// save
+                await session.setItem("try", count);
+                if(askMessage){
+                    // console.log("ASK MESSAGE", askMessage)
+                    return con(askMessage);
+                } else
+                    con(`${templates['TITLE']({
+                        data : session.data ?? {},
+                        session : session,
+                        variables : {...instance.main.variables2,...instance.main.variables,}
+                    })}`);
+            }
+            var send =async (port) => {
+                await session.setItem("input",null);  // clear answer handler
+                $.send(port, session.data);
+            }
+            
+            
+            var execInit = async ()=>{
+                if(config.hasCode){
+                    // execute init;
+                    var _init;
+                    try {
+                        _init = await init(
+                            session.data,
+                            session,
+                            {...instance.main.variables2,...instance.main.variables,},
+                            (port)=>{
+                                var _port = getPort(port);
+                                if(_port){
+                                }else if(typeof port == "string"){
+                                    return end(port);
+                                }else{
+                                    port = "default";
+                                }
+                                send(port);
+                                throw "EXIT";
+                            },(message)=>{
+                                end(message);
+                                throw "EXIT";
+                            }, (ask)=>{
+                                showMenu(ask);
+                                throw "EXIT";
+                            }
+                        );
+                    } catch (error) {
+                        if(error == "EXIT"){
+                            return true; // stop function
+                        }
+                        instance.throw(error);
+                        end(`${error}`)
+                        return true;
+                    }
+                    if(typeof _init == "string" || typeof _init == "number"){
+                        var _port = getPort(_init);
+                        if(_port){
+                            send(_port);
+                            return true;
+                        }else{
+                            showMenu(_init);
+                            return true
+                        }
+                    }
+                }
+                return false;
+            }
+            // console.log("HAS RESP",session.response);
+            if(session.response){ // has a reply 
+                
+            }else{
+                if(await execInit()) return;
+            }
+            // show menu
+            showMenu();
+        };
+
+        instance.configure = function() {
+            if(config.code.trim())
+                init = new Function("data, session , variables, send, stop, ask",`return (async ()=>{;\n${config.code};\n})();`);
+            else
+                init = ()=>{};
+            var type = types[config.type] ??  'TEXT';
+            instance.outputs = [{ id: 'default', name: 'Output' }];
+            templates['TITLE'] = Tangular.compile(`${config.message}\n${
+                type == "SELECT" && Object.keys(config.values).length ? Object.values(config.values).map((option, index)=>`${index+1}. ${option}`).join("\n") : ""
+            }`.trim());
+            if(config.hasMedia && config.mediaUrl){
+                templates['MEDIA'] = Tangular.compile(config.mediaUrl);
+            } else {
+                templates['MEDIA'] = ()=>"";
+            }
+            instance.inputs = [{ id: 'input', name: type }];
+            instance.save();
+        };
+        instance.configure();
+    };
+
+</script>
+
+<readme>
+# readme
+</readme>
+
+<settings>
+    <div class="padding">
+        <div class="row m">
+            <div class="col-md-4 m">
+                <label class="ui-input-label">Input Name</label>
+                <ui-component name="input" path="?.name" config="autoexec:setName;placeholder:name;maxlength:30;required:1;monospace:1"></ui-component>
+                <ui-bind path="?.name" class="help" config="html:value ? `<b>session.inputs.${value}</b>` : ''"></ui-bind>
+            </div>
+            <div class="col-md-4 m">
+                <ui-component name="input" path="?.type" config="required:0;dirsource:TEXT|TEXT,SELECT|SELECT,PHONE|PHONE,NUMBER|NUMBER,EMAIL|EMAIL">Type</ui-component>
+            </div>
+            <div class="col-md-4 m">
+                <ui-component name="input" path="?.maxtry" config="required:1;format:number">Max try</ui-component>
+            </div>
+            <div class="col-md-12 m">
+                <label class="ui-input-label">Message</label>
+                <ui-component name="input" path="?.message" config="maxlength:156;required:1"></ui-component>
+            </div>
+            
+            <div class="col-md-6 m">
+                <ui-component name="input" path="?.hasMedia" config="type:checkbox">With Media</ui-component>
+            </div>
+            <div class="col-md-6 m">
+                <ui-component name="input" path="?.hasCode" config="type:checkbox">With Code</ui-component>
+            </div>
+            <ui-bind path="?.hasMedia" config="show" class="hidden block col-md-12 m">
+                <label class="ui-input-label">Media Url</label>
+                <ui-component name="input" path="?.mediaUrl" config="required:1;placeholder:@(Media Url)"></ui-component>
+            </ui-bind>    
+        </div>
+        <section class="row m">
+            <ui-bind path="?.type" config="show:value=='TEXT' || value=='PHONE'" class="hidden block m">
+                <div class="col-md-12 m">
+                    <div class="col-md-4 m">
+                        <ui-component name="input" path="?.maxlength" config="required:1;format:number">Max Length</ui-component>
+                    </div>
+                    <div class="col-md-8 m">
+                        <label class="ui-input-label">Bad Length Error Message</label>
+                        <ui-component name="input" path="?.messageErrorLeft" config="maxlength:156;required:1"></ui-component>
+                    </div>
+                </div>
+                <div class="col-md-12 m">
+                    <div class="col-md-4 m">
+                        <ui-component name="input" path="?.pattern" config="required:0;">RegExp Valitator</ui-component>
+                    </div>
+                    <div class="col-md-8 m">
+                        <label class="ui-input-label">Format/RegExp Error Message</label>
+                        <ui-component name="input" path="?.messageErrorRight" config="maxlength:156;required:1"></ui-component>
+                    </div>
+                </div>
+            </ui-bind>
+            <ui-bind path="?.type" config="show:value=='NUMBER'" class="hidden block m">
+                <div class="col-md-12 m">
+                    <div class="col-md-4 m">
+                        <ui-component name="input" path="?.min" config="required:1;format:number">Minimum</ui-component>
+                    </div>
+                    <div class="col-md-8 m">
+                        <label class="ui-input-label"></label>Minimum Error Message</label>
+                        <ui-component name="input" path="?.messageErrorRight" config="maxlength:156;required:1"></ui-component>
+                    </div>
+                </div>
+                <div class="col-md-12 m">
+                    <div class="col-md-4 m">
+                        <ui-component name="input" path="?.max" config="required:1;format:number">Maximum</ui-component>
+                    </div>
+                    <div class="col-md-8 m">
+                        <label class="ui-input-label"></label>Maximum Error Message</label>
+                        <ui-component name="input" path="?.messageErrorRight" config="maxlength:156;required:1"></ui-component>
+                    </div>
+                </div>
+            </ui-bind>
+
+            <ui-bind path="?.type" config="show:value=='SELECT'" class="hidden block m">
+                <div class="col-md-12 m">
+                    <label class="ui-input-label"></label>Bad Selection Error Message</label>
+                    <ui-component name="input" path="?.messageErrorLeft" config="maxlength:156;required:1"></ui-component>
+                </div>
+                <div class="col-md-12 m">
+                    <ui-component name="keyvalue" path="?.values" config="maxlengthkey:20;placeholderkey:Value;placeholdervalue:Label and press enter for validate">Options</ui-component>
+                </div>
+            </ui-bind>
+            <ui-bind path="?.type" config="show:value=='EMAIL'" class="hidden block m">
+                <div class="col-md-12 m">
+                    <label class="ui-input-label"></label>Error Message</label>
+                    <ui-component name="input" path="?.messageErrorLeft" config="maxlength:156;required:1"></ui-component>
+                </div>
+            </ui-bind>
+        </section>
+        <ui-bind path="?.hasCode" config="show" class="hidden block m">
+            <div class="ui-input-label">Javascript Code:</div>
+            <ui-component name="codemirror" path="?.code" config="type:javascript;height:250;parent:auto;margin:30;tabs:true;trim:true" class="m"></ui-component>
+        </ui-bind>
+    </div>
+</settings>
+
+<script>
+    function setName(opt, next) {
+        next(opt.value.replace(/(;|\s|,)/g, '').trim());
+    };
+    TOUCH(function(exports, init) {
+        exports.configure = function(config,isInit) {    
+            var types = "TEXT|TEXT,SELECT|SELECT,PHONE|PHONE,NUMBER|NUMBER,EMAIL|EMAIL".split(',').reduce((types, type)=>{
+                type =type.split("|");
+                types[type[0]] = type[1];
+                return types;
+            },{})
+            exports.instance.inputs = [{ id: 'input', name: types[config.type] ? types[config.type] :  'TEXT' }];
+            UPD('flow.data');
+        }
+    });
+</script>
+
+<style>
+    .CLASS footer { padding: 10px; font-size: 12px; }
+
+    .button-add { height: 24px; font-size: 12px; border: 1px solid #E0E0E0; border-radius: var(--radius); color: #000; background-color: #f0f0f0; margin: 0; padding: 2px 10px; }
+    .button-add:hover { background-color: #F8F8F8; }
+    .button-add:active { background-color: #E0E0E0; }
+
+    .ui-dark .button-add { border-color: #404040; color: #FFF; background-color: #202020; }
+    .ui-dark .button-add:hover { background-color: #303030; }
+    .ui-dark .button-add:active { background-color: #404040; }
+
+    .switch-input-group { clear: both; height: 36px; }
+    .switch-input-group > ui-component:first-child .ui-input-control { border-right: none; border-bottom-right-radius: 0; border-top-right-radius: 0; width: 120px; float: left; background-color: #f0f0f0; }
+    .switch-input-group > ui-component:last-child .ui-input-control { border-bottom-left-radius: 0; border-top-left-radius: 0; float: left; width: calc(100% - 120px); }
+    .switch-input-group.wide > ui-component:first-child .ui-input-control { width: 200px; }
+    .switch-input-group.wide > ui-component:last-child .ui-input-control { width: calc(100% - 200px); }
+    .menus { border: 1px solid #e0e0e0; padding: 8px; border-radius: 3px; }
+    .menu { border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px; margin-bottom:4px; }
+    .menu > .row > .col-md-1 { height: 36px; line-height: 36px; }
+    .switch-help { background-color: #e7e7ff; border-radius: 3px; padding: 4px; }
+    .switch-thead { padding: 8px; margin-bottom:4px; }
+</style>
+
+<body>
+    <header>
+        <i class="ICON"></i>NAME
+        <ui-bind path="CONFIG.hasCode" config="show" class="hidden"><span class="ti ti-code"></span></ui-bind>
+    </header>
+    <footer style="
+		display: flex;
+		flex-direction: initial;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+	">
+    <ui-bind path="CONFIG.message" config="template">
+        <span>{{value}}</span>
+    </ui-bind>
+	</footer>
+</body>

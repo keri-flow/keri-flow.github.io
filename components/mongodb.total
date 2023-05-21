@@ -1,0 +1,243 @@
+<script component>
+
+	exports.name = 'MongoDB';
+	exports.group = 'Databases';
+	exports.icon = 'ti ti-database';
+	exports.author = 'Martin Smola';
+	exports.version = '2';
+	exports.config = {
+    fn : null,
+    connection : "",
+    connectionData : "",
+    string : ""
+  };
+	exports.inputs = [{ id: 'input', name: 'Input' }];
+	exports.outputs = [{ id: 'output', name: 'Output' }];
+  exports.meta = {readonly: true, remove: false};
+  const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+
+	exports.make = function(instance, config) {
+
+		REPO.mongodb = REPO.mongodb || {};
+
+		const { MongoClient } = require('mongodb');
+
+		var MONGO;
+		var COLS = {};
+		var fn;
+    var templates = {}
+
+		instance.message = async function($) {
+			var data = $.data ?? {};
+      var session = new SharedMemory($);
+      await session.ready;
+      if(!(session.sessionId && session.reply && typeof session.reply == "function")){
+          session = SharedMemory.empty;
+          session.data = data;
+      }else{
+        data  =  session.data;
+      }
+
+			if (!MONGO){
+				if(typeof data != "object"){
+          data = {
+            data 
+          }
+        }
+        data.results = {
+          error : 'MongoDB connection not configured', results : null, fields : null
+        };
+        instance.throw('MongoDB connection not configured');
+        return $.send('output', data);
+      }
+			let results, error;
+      try{
+        results = await fn(
+          {db: MONGO.client.db.bind(MONGO.client)},
+          session.data ?? {},
+          session,
+          {...instance.main.variables2,...instance.main.variables,}
+        );
+
+      }catch(err){
+        error = ""+(err.message || err);
+        console.log("ERROR", error)
+        instance.throw(error);
+      }
+      if(typeof data != "object"){
+        data = {
+          data 
+        }
+      }
+      data.results = {
+        error, results : results ?? null, fields : null
+      };
+      $.send('output', data);
+		};
+
+		instance.close = function(callback) {
+			if (MONGO) {
+				MONGO.count--;
+				if (MONGO.count === 0) {// last component using this connection so destroy it
+                    MONGO.client.close();
+					MONGO.client.removeAllListeners();
+					delete REPO.mongodb[config.connectionData];
+				}
+				MONGO = null;
+        COLS = {};
+			}
+		};
+
+		instance.configure = async function() {
+
+			if (!config.fn) {
+				fn = null;
+				return instance.status({ state: 'Missing query function' });
+			}
+      ["connection"].map(key=>{
+          if(config[key]){
+              templates[key.toUpperCase()] = Tangular.compile(config[key]);
+          }else{
+              templates[key] = ()=>"";
+          }
+      });
+      config.connectionData = `${templates['CONNECTION']({
+          data : {},
+          session : {},
+          variables : {...instance.main.variables2,...instance.main.variables,}
+      })}`.trim();
+
+			var connection = config.connectionData;
+
+			fn = new Function('client', 'data','session','variables', `return (async (callback)=>{;\n${config.fn}\n;}).call();`);
+
+			if (config.string)
+				connection = config.string;
+
+			if (!connection)
+				return  instance.status({ state: 'Missing connection string' });
+			// same connection, ignore
+			if (MONGO && MONGO.string === connection)
+				return instance.status({ state: 'Connected' });
+
+			// already existing connection, use it
+			if (REPO.mongodb[connection]) {
+				instance.close();
+				MONGO = REPO.mongodb[connection];
+				MONGO.count++;
+				return instance.status({ state: 'Connected' });
+			}
+
+			instance.close();
+
+			const client = await connect();
+
+			if (!client)
+				return instance.status({ state: 'Failed to connect' });
+
+			instance.status({ state: 'Connected' });
+
+			config.string = connection;
+
+			MONGO = REPO.mongodb[connection] = {
+				client,
+				count: 1,
+				string: connection,
+				name: config.name
+			};
+		};
+
+		instance.configure();
+
+		async function connect() {
+
+			const client = new MongoClient(config.connection, { useNewUrlParser: true, useUnifiedTopology: true });
+
+			try {
+				await client.connect();
+				await client.db("admin").command({ ping: 1 });
+				var dbs = await client.db("admin").command({ listDatabases: 1 });
+			} catch(e) {
+				instance.throw(e.message);
+				return null;
+			}
+
+			return client;
+		};
+
+		instance.call = function(data, reply) {
+			var arr = [];
+
+			for (const key in REPO.mongodb)
+				arr.push({ id: REPO.mongodb[key].string, name: REPO.mongodb[key].name });
+
+			reply(arr);
+		};
+	};
+
+</script>
+
+<readme>
+## Query editor
+```js
+// db = client.db("db-name"); database instance
+// collection = use("db-name").collection('collection-name'); collection instance
+// data; data from the incomming object
+// session; session from connector (can be empty)
+// variables; variables object
+var myCol = client.db('testDb').collection('players');
+const cursor = myColl.find({});
+const allValues = await cursor.toArray();
+
+return allValues; // send  allValues to the next component 
+```
+
+(MongoDB Documentation)[https://www.mongodb.com/docs/drivers/node/current/fundamentals/crud/query-document/] 
+</readme>
+<script>
+	ON('configure_mongodb', function(data) {
+		data.call(function(response) {
+			SET('%connections', response);
+		});
+	});
+</script>
+<settings>
+	<div class="padding">
+		<div class="row m">
+			<div class="col-md-12">
+				<div class="m"><b>Select Connection</b></div>
+				<ui-component name="input" path="?.string" config="dirsource:%connections;dirraw:1;placeholder:Select connection;dirempty:No connection" class="m"></ui-component>
+				<hr />
+				<ui-bind path="?.string" config="config [data---]:'required:' + (!value);hide">
+					<div class="m"><b>or create new one</b></div>
+					<ui-component name="input" path="?.name" config="required:1" class="m">Connection name</ui-component>
+					<ui-component name="input" path="?.connection" config="required:1">Connection string (without the database name)</ui-component>
+					<div class="help m">e.g.: mongodb+srv://user:pswd@xyz.mongodb.net/?retryWrites=true&w=majority</div>
+				</ui-bind>
+			</div>
+		</div>
+		<div class="row m">
+			<div class="col-md-12">
+				<ui-component name="codemirror" path="?.fn" config="type:javascript;required:true;height:300" class="m">Query editor</ui-component>
+				<a href="https://www.mongodb.com/docs/drivers/node/current/fundamentals/crud/query-document/" target="_blank"><i class="ti ti-info-circle mr5"></i>mongodb documentation</a>
+			</div>
+		</div>
+	</div>
+</settings>
+
+<style>
+	.CLASS footer { padding: 10px; font-size: 12px; }
+</style>
+
+<script>
+
+</script>
+
+<body>
+	<header>
+		<i class="ICON"></i>NAME
+	</header>
+	<footer>
+		<ui-bind path="STATUS.state" config="text"></ui-bind>
+	</footer>
+</body>

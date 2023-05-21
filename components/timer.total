@@ -1,0 +1,119 @@
+<script component>
+
+	exports.name = 'Timer';
+	exports.group = 'Triggers';
+	exports.version = '2';
+	exports.icon = 'ti ti-stopwatch';
+	exports.author = 'Total.js';
+	exports.config = { random: true, type: 'string', data: '', interval: 5000 };
+	exports.outputs = [{ id: 'output', name: 'Output' }];
+  exports.meta = {readonly: true, remove: false};
+
+	exports.make = function(instance, config) {
+
+		var interval;
+
+		instance.trigger = function() {
+
+			var val;
+
+			switch (config.type) {
+				case 'number':
+					val = config.random ? U.random() : config.data.parseFloat();
+					break;
+				case 'buffer':
+					try {
+						val = config.random ? Buffer.from(U.random_string()) : Buffer.from(config.data, 'base64');
+					} catch (e) {
+						instance.throw(e);
+					}
+					break;
+				case 'date':
+					val = config.random ? NOW.add('-' + U.random(500, 10)) : config.data.parseDate();
+					break;
+				case 'object':
+					try {
+						val = config.random ? {} : (new Function('variables','return (' + config.data+');'))({...instance.main.variables2,...instance.main.variables,});
+					} catch (e) {
+						instance.throw(e);
+					}
+					break;
+				case 'boolean':
+					val = config.random ? U.random() % 2 === 0 : config.data === 'true' || config.data === 'on' || config.data === '1';
+					break;
+				default:
+					val = config.random ? U.random_string(20) : config.data;
+					break;
+			}
+
+			instance.send('output', val);
+		};
+
+		instance.configure = function() {
+			interval && clearInterval(interval);
+			interval = null;
+			if (config.interval)
+				interval = setInterval(() => instance.trigger(), config.interval);
+		};
+
+		instance.close = function() {
+			interval && clearInterval(interval);
+			interval = null;
+		};
+
+		instance.configure();
+	};
+
+</script>
+
+<script>
+	FUNC.ftimer_exec = function(el) {
+		SETTER('websocket/send', { TYPE: 'trigger', id: el.attrd2('id') });
+	};
+</script>
+
+<style>
+	.CLASS .padding { padding: 0 10px 10px; }
+	.CLASS button { width: 100%; height: 24px; border: 1px solid #E0E0E0; border-radius: var(--radius); color: #000; background-color: #F0F0F0; margin: 0; }
+	.CLASS button:hover { background-color: #F8F8F8; }
+	.CLASS button:active { background-color: #E0E0E0; }
+	.ui-dark .CLASS button { border-color: #404040; color: #FFF; background-color: #222; }
+	.ui-dark .CLASS button:hover { background-color: #303030; }
+	.ui-dark .CLASS button:active { background-color: #404040; }
+</style>
+
+<settings>
+	<div class="padding">
+		<div class="row">
+			<div class="col-md-3 m">
+				<ui-component name="input" path="?.interval" config="type:number;required:1">Interval</ui-component>
+				<div class="help">In milliseconds</div>
+			</div>
+			<div class="col-md-9 m">
+				<ui-component name="input" path="?.type" config="dirsource:string|String,number|Number,boolean|Boolean,date|Date,object|Object,buffer|Buffer as Base64;required:1">Type</ui-component>
+			</div>
+		</div>
+		<hr />
+		<div class="m">
+			<ui-component name="input" path="?.random" config="type:checkbox">Random data</ui-component>
+		</div>
+		<ui-bind path="?.random" config="hide" class="hidden block">
+			<hr />
+			<ui-component name="input" path="?.data" config="required:1">Data</ui-component>
+		</ui-bind>
+	</div>
+</settings>
+
+<readme>
+The component triggers data into the Flow in the specified interval.
+</readme>
+
+<body>
+	<header>
+		<i class="ICON"></i>NAME
+	</header>
+	<div class="padding">
+		<button class="exec" data-exec="FUNC.ftimer_exec">Run</button>
+		<div class="help">Interval: <ui-bind path="CONFIG.interval" config="text;empty"></ui-bind> ms</div>
+	</div>
+</body>

@@ -1,0 +1,572 @@
+<script component>
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const mime = require('mime-types');
+    var isElectron = (typeof process !== 'undefined' && typeof process.versions === 'object' && !!process.versions.electron);
+    var databasesPath = path.join(process.env.KERI_FLOW_USER_DATA_DIR ? process.env.KERI_FLOW_USER_DATA_DIR : PATH.root(), 'databases');
+    var pref = JSON.parse(require('fs').readFileSync(PATH.join(databasesPath, "preferences.json")));
+    const { default: makeWASocket, delay, extractMessageContent, makeInMemoryStore, useMultiFileAuthState, Browsers, DisconnectReason, downloadMediaMessage } = require('@adiwajshing/baileys');
+
+    path.root = dir => dir ? PATH.join(PATH.root(), dir) : PATH.root();
+    path.mkdir = (dir, mode = null) => fs.mkdirSync(dir, { recursive: true, ...((typeof mode == "string" && /^(r|w|x){1,3}$/) || typeof mode == "number" ? { mode } : {}) });
+
+    const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+
+    exports.name = 'AfricasTalking USSD';
+    exports.icon = 'ti ti-hashtag';
+    exports.author = 'Oshimin Labs';
+    exports.version = '2';
+    exports.group = 'Connector';
+    exports.config = {
+        url: '',
+        timeout: 5000,
+        notFountMessage: "Service not found",
+        outputs: []
+    };
+    exports.inputs = [];
+    exports.outputs = [];
+
+    exports.npm = [];
+    exports.meta = { remove: false, readonly: true };
+
+    var client;
+
+
+    function getMessage(message, options) {
+        if (options && typeof options == "object") {
+            options = arrayToObject(options);
+            return `${message.trim()}\n${Object.keys(options).map((key, index) => `${key}. ${options[key]}`.trim()).join('\n')}`.trim();
+        } else {
+            return message.trim();
+        }
+    }
+    function arrayToObject(options) {
+        if (options && typeof options == "object" && !Array.isArray(options)) {
+            return options;
+        } else if (options && typeof options == "object" && Array.isArray(options)) {
+            return options.reduce((ret, value, index) => {
+                ret[index + 1] = value;
+                return ret;
+            }, {});
+        } else {
+            return {};
+        }
+    }
+    
+    exports.make = function (instance, config) {
+        var prev = null;
+        var ttl = {};
+        var templateGet =  Tangular.compile(Buffer.from([
+          "3c68746d6c3e0a3c6865616465723e0a20203c7469746c653e4166726974616c6b20555353442053",
+          "657276696365733c2f7469746c653e0a20203c7374796c653e0a2020202040696d706f7274202768",
+          "747470733a2f2f666f6e74732e676f6f676c65617069732e636f6d2f6373733f66616d696c793d49",
+          "6e636f6e736f6c617461273b0a0a2020202068746d6c207b0a2020202020206d696e2d6865696768",
+          "743a20313030253b0a202020207d0a0a20202020626f6479207b0a202020202020626f782d73697a",
+          "696e673a20626f726465722d626f783b0a2020202020206865696768743a20313030253b0a202020",
+          "2020206261636b67726f756e642d636f6c6f723a20233030303030303b0a2020202020206261636b",
+          "67726f756e642d696d6167653a2072616469616c2d6772616469656e7428233131353831452c2023",
+          "303431363037292c200a75726c282268747470733a2f2f6d656469612e67697068792e636f6d2f6d",
+          "656469612f6f454939754259537a4c70424b2f67697068792e67696622293b0a2020202020206261",
+          "636b67726f756e642d7265706561743a206e6f2d7265706561743b0a2020202020206261636b6772",
+          "6f756e642d73697a653a20636f7665723b0a202020202020666f6e742d66616d696c793a2022496e",
+          "636f6e736f6c617461222c2048656c7665746963612c2073616e732d73657269663b0a2020202020",
+          "20666f6e742d73697a653a20312e3572656d3b0a202020202020636f6c6f723a2072676261283132",
+          "382c203235352c203132382c20302e38293b0a202020202020746578742d736861646f773a203020",
+          "302031657820233333666633332c20302030203270782072676261283235352c203235352c203235",
+          "352c20302e38293b0a202020207d0a0a202020202e6e6f697365207b0a202020202020706f696e74",
+          "65722d6576656e74733a206e6f6e653b0a202020202020706f736974696f6e3a206162736f6c7574",
+          "653b0a20202020202077696474683a20313030253b0a2020202020206865696768743a2031303025",
+          "3b0a2020202020206261636b67726f756e642d696d6167653a200a75726c282268747470733a2f2f",
+          "6d656469612e67697068792e636f6d2f6d656469612f6f454939754259537a4c70424b2f67697068",
+          "792e67696622293b0a2020202020206261636b67726f756e642d7265706561743a206e6f2d726570",
+          "6561743b0a2020202020206261636b67726f756e642d73697a653a20636f7665723b0a2020202020",
+          "207a2d696e6465783a202d313b0a2020202020206f7061636974793a20302e30323b0a202020207d",
+          "0a0a202020202e6f7665726c6179207b0a202020202020706f696e7465722d6576656e74733a206e",
+          "6f6e653b0a202020202020706f736974696f6e3a206162736f6c7574653b0a202020202020776964",
+          "74683a20313030253b0a2020202020206865696768743a20313030253b0a2020202020206261636b",
+          "67726f756e643a20726570656174696e672d6c696e6561722d6772616469656e7428313830646567",
+          "2c207267626128302c20302c20302c20302920302c200a7267626128302c20302c20302c20302e33",
+          "29203530252c207267626128302c20302c20302c2030292031303025293b0a202020202020626163",
+          "6b67726f756e642d73697a653a206175746f203470783b0a2020202020207a2d696e6465783a2031",
+          "3b0a202020207d0a0a202020202e6f7665726c61793a3a6265666f7265207b0a202020202020636f",
+          "6e74656e743a2022223b0a202020202020706f696e7465722d6576656e74733a206e6f6e653b0a20",
+          "2020202020706f736974696f6e3a206162736f6c7574653b0a202020202020646973706c61793a20",
+          "626c6f636b3b0a202020202020746f703a20303b0a2020202020206c6566743a20303b0a20202020",
+          "202072696768743a20303b0a202020202020626f74746f6d3a20303b0a2020202020207769647468",
+          "3a20313030253b0a2020202020206865696768743a20313030253b0a2020202020206261636b6772",
+          "6f756e642d696d6167653a206c696e6561722d6772616469656e7428306465672c207472616e7370",
+          "6172656e742030252c20726762612833322c200a3132382c2033322c20302e32292032252c207267",
+          "62612833322c203132382c2033322c20302e38292033252c20726762612833322c203132382c2033",
+          "322c20302e32292033252c200a7472616e73706172656e742031303025293b0a2020202020206261",
+          "636b67726f756e642d7265706561743a206e6f2d7265706561743b0a2020202020202d7765626b69",
+          "742d616e696d6174696f6e3a207363616e20372e3573206c696e65617220307320696e66696e6974",
+          "653b0a202020202020616e696d6174696f6e3a207363616e20372e3573206c696e65617220307320",
+          "696e66696e6974653b0a202020207d0a0a20202020402d7765626b69742d6b65796672616d657320",
+          "7363616e207b0a2020202020203025207b0a20202020202020206261636b67726f756e642d706f73",
+          "6974696f6e3a2030202d31303076683b0a2020202020207d0a0a2020202020203335252c0a202020",
+          "20202031303025207b0a20202020202020206261636b67726f756e642d706f736974696f6e3a2030",
+          "2031303076683b0a2020202020207d0a202020207d0a0a20202020406b65796672616d6573207363",
+          "616e207b0a2020202020203025207b0a20202020202020206261636b67726f756e642d706f736974",
+          "696f6e3a2030202d31303076683b0a2020202020207d0a0a2020202020203335252c0a2020202020",
+          "2031303025207b0a20202020202020206261636b67726f756e642d706f736974696f6e3a20302031",
+          "303076683b0a2020202020207d0a202020207d0a0a202020202e7465726d696e616c207b0a202020",
+          "202020626f782d73697a696e673a20696e68657269743b0a202020202020706f736974696f6e3a20",
+          "6162736f6c7574653b0a2020202020206865696768743a20313030253b0a20202020202077696474",
+          "683a203130303070783b0a2020202020206d61782d77696474683a20313030253b0a202020202020",
+          "70616464696e673a203472656d3b0a202020202020746578742d7472616e73666f726d3a20757070",
+          "6572636173653b0a202020207d0a0a202020202e6f7574707574207b0a202020202020636f6c6f72",
+          "3a2072676261283132382c203235352c203132382c20302e38293b0a202020202020746578742d73",
+          "6861646f773a203020302031707820726762612835312c203235352c2035312c20302e34292c2030",
+          "2030203270782072676261283235352c203235352c200a3235352c20302e38293b0a202020207d0a",
+          "0a202020202e6f75747075743a3a6265666f7265207b0a202020202020636f6e74656e743a202220",
+          "3e20223b0a202020207d0a0a202020202e6f75747075742e6e6f3a3a6265666f7265207b0a202020",
+          "202020636f6e74656e743a2022223b0a202020207d0a0a202020202f2a0a2e696e707574207b0a20",
+          "20636f6c6f723a2072676261283139322c203235352c203139322c20302e38293b0a202074657874",
+          "2d736861646f773a0a2020202020203020302031707820726762612835312c203235352c2035312c",
+          "20302e34292c0a202020202020302030203270782072676261283235352c203235352c203235352c",
+          "20302e38293b0a7d0a0a2e696e7075743a3a6265666f7265207b0a2020636f6e74656e743a202224",
+          "20223b0a7d0a2a2f0a2020202061207b0a202020202020636f6c6f723a20236666663b0a20202020",
+          "2020746578742d6465636f726174696f6e3a206e6f6e653b0a202020207d0a0a20202020613a3a62",
+          "65666f7265207b0a202020202020636f6e74656e743a20225b223b0a202020207d0a0a2020202061",
+          "3a3a6166746572207b0a202020202020636f6e74656e743a20225d223b0a202020207d0a0a202020",
+          "206872207b0a2020202020206d617267696e3a20303b0a202020202020636c6561723a20616c6c3b",
+          "0a202020202020646973706c61793a20626c6f636b3b0a20202020202077696474683a2033353070",
+          "783b0a202020202020626f726465722d636f6c6f723a2072676261283132382c203235352c203132",
+          "382c20302e38293b0a202020207d0a0a202020202e6572726f72636f6465207b0a20202020202063",
+          "6f6c6f723a2077686974653b0a202020207d0a20203c2f7374796c653e0a3c2f6865616465723e0a",
+          "0a3c626f64793e0a20203c64697620636c6173733d226e6f697365223e3c2f6469763e0a20203c64",
+          "697620636c6173733d226f7665726c6179223e3c2f6469763e0a20203c64697620636c6173733d22",
+          "7465726d696e616c223e0a202020203c68313e55535344203c7370616e20636c6173733d22657272",
+          "6f72636f6465223e53657276696365733c2f7370616e3e3c2f68313e0a202020203c7020636c6173",
+          "733d226f7574707574206e6f223e596f7572205553534420536572766963657320617265200a7265",
+          "6164792e3c2f703e0a202020203c68723e0a202020207b7b20666f7265616368206f757470757420",
+          "696e206f757470757473207d7d0a093c7020636c6173733d226f7574707574223e0a09093c613e4f",
+          "7b7b6966206f75747075742e6f6e6c696e657d7d6e6c696e65207b7b656c73657d7d66666c696e65",
+          "7b7b66697d7d3c2f613e200a0909266e6273703b266e6273703b266e6273703b266e6273703b7b7b",
+          "6f75747075742e636f64657d7d3c2f703e0a202020207b7b20656e64207d7d0a202020203c68723e",
+          "0a20203c2f6469763e0a3c2f626f64793e0a0a3c2f68746d6c3e0a"
+        ].join(""),'hex').toString('utf8'));
+
+        instance.configure = async function () {
+            if (prev) {
+                prev && prev.get && prev.get.remove();
+                prev && prev.post && prev.post.remove();
+                prev = null;
+                instance.status({ online: false });
+            }
+            config.url = config.url ? config.url : ("/"+UID());
+
+            if (instance.main.proxypath && config.url) {
+                config.proxypath = instance.main.proxypath;
+                var flags = [config.timeout];
+                prev = {};
+                //console.log("USSD HTTP REGISTER", instance.main.proxypath, config.url);
+                prev.get = ROUTE('GET ' + config.url.replace(/^\//,""), function () {
+                    var ctrl = this;
+                    ctrl.res.send(200, templateGet({
+                      outputs : config.outputs.map(id => {
+                          var target = instance.main.meta.flow[id];
+                          if (!target || !target.config.name) return null;
+                          return {
+                            code : target.config.name,
+                            online : Object.keys(target.connections).length > 0
+                          };
+                      })
+                    }), "text/html");
+                });
+                prev.post = ROUTE('POST ' + config.url, async function () {
+                    var ctrl = this;
+                    var data = {};
+
+                    function replyBuilder(text) {
+                        console.log("SEND", text);
+                        ctrl.plain(text);
+                    }
+                    try {
+                        console.log("EXTRACT", ctrl.body);
+
+                        //extract data
+                            data = {
+                                /** @type {string} */
+                                id: ctrl.body.sessionId,
+                                /** @type {boolean} */
+                                fromMe: false,
+                                /** @type {string} */
+                                to: ctrl.body.serviceCode,
+                                /** @type {string} */
+                                from: ctrl.body.phoneNumber,
+                                /** @type {string} */
+                                pushName: ctrl.body.phoneNumber,
+                                /** @type {string | null} */
+                                group: null,
+                                /** @type {boolean} */
+                                isGroup: false,
+                                /** @type {boolean} */
+                                isStatus: false,
+                                /** @type {boolean} */
+                                isUser: true,
+                                /** @type {string} */
+                                body: /^(\*|#)[^#*]+#$/.test(ctrl.body.text) ? "" : ctrl.body.text.split("*").pop(),
+                                /** @type {string} */
+                                provider: "africastalking",
+                                /** @type {string} */
+                                sessionId: ctrl.body.sessionId
+                            };
+                        
+                        console.log("POST ROUTE " + config.url, data);
+
+                        var session = new SharedMemory({
+                            sessionId: `${data.sessionId}`,
+                            data
+                        }, data);
+                        await session.ready;
+
+                        /// Core Functions
+                        //// sayWelcome : welcome message
+                        await session.setItem("sayWelcome", async function (message) {
+                            // no welcome on USSD
+                        });
+                        //// securePin : ask a pin to a user
+                        await session.setItem("securePin", async function ({
+                            message,
+                            returnMessage,
+                            urlMessage,
+                            mediaUrl,
+                            TTL,
+                            timeout,
+                        }) { // normal ask
+                            return new Promise(async (okFn, errFn) => {
+                                await session.setItem("input", async function (response) {
+                                    await session.setItem("input", null);  // clear answer handler
+                                    okFn(`${response}`.trim());
+                                });
+                                replyBuilder("CON "+message);
+                            });
+                        });
+                        //// confirm : send a message and wait for a confirmation
+                        await session.setItem("confirm", function ({
+                            message,
+                            confirmText,
+                            yesValue,
+                            noValue,
+                            yesText,
+                            noText,
+                            mediaUrl
+                        }) {
+                            return new Promise(async (okFn, errFn) => {
+                                var btnMsg;
+                                yesText = yesText || "yes";
+                                noText = noText || "no";
+                                confirmText = confirmText || `Reply *${yesText}* or *${noText}*`;
+                                await session.setItem("input", async function (response) {
+                                    //btnMsg.delete(true);
+                                    var clean = (str) => str.toString().replace(/[ ]+/g, " ").toUpperCase();
+                                    var res = clean(response) == clean("1") || clean(response) == clean(yesValue) || clean(response) == clean(yesText);
+                                    await session.setItem("input", null);  // clear answer handler
+                                    okFn(res ? yesValue : noValue);
+                                });
+                                replyBuilder("CON "+getMessage(`${message}\n\n1. ${yesText}\n2. ${noText}`));
+                            });
+                        });
+                        //// message : send message to someone
+                        await session.setItem("message", async function (to, message, mediaUrl) {
+                            // no action
+                        });
+                        //// reply : send reply to user
+                        await session.setItem("reply", async function (message, ask, options, mediaUrl) {
+                            replyBuilder((ask ? "CON" : "END")+" "+getMessage(message, options));
+                        });
+                        // handle close session 
+                        await session.onBye((force, session) => {
+                            // no action on Close session
+                        })
+
+                        var instanceToSendTheAnswer = session.input ?? null, response = null;
+                        if (instanceToSendTheAnswer && typeof instanceToSendTheAnswer == "function") {
+                            console.log(data.body,ctrl.body,[instanceToSendTheAnswer , typeof instanceToSendTheAnswer == "function"])
+                            await instanceToSendTheAnswer(data.body);
+                        } else {
+                            var msg = {
+                                sessionId: session.sessionId,
+                                data: session.data,
+                                response
+                            };
+                            var output;
+                            config.outputs.some(id => {
+                                var target = instance.main.meta.flow[id];
+                                if (!target || !target.config.name || (session.isUser && !target.config.user)) return false;
+                                var ret = target.config.name.trim().toUpperCase() == session.to.trim().toUpperCase();
+                                if (ret) {
+                                    output = target;
+                                }
+                                return ret;
+                            })
+
+                            if (output) {
+                                // read online stats
+                                var user;
+                                try {
+                                    var pref = JSON.parse(fs.readFileSync(PATH.join(databasesPath, "preferences.json")));
+                                    user = pref.user;
+                                    // if(!user) throw new Error("Can't get User Information");
+                                } catch (error) {
+                                }
+                                if (!user) return instance.throw("Error when read the connected user");
+                                var opt = {};
+                                opt.url = `${pref.mayaHost}/check_user`;
+                                opt.body = JSON.stringify({
+                                    "login": pref.user.login,
+                                    "id": pref.user._id
+                                });
+                                opt.method = "POST";
+                                opt.type = "json";
+                                opt.dnscache = true;
+                                opt.insecure = true;
+                                var sessions = 0;
+                                opt.callback = function (err, response) {
+                                    if (!err && response && response.status == 200) {
+                                        var user = response.body;
+                                        user = user.parseJSON();
+                                        if (user) {
+                                            sessions = user.sessions;
+                                        }
+                                    }
+                                    if (sessions > 0) {
+                                        output.message(instance.newmessage(msg));
+                                    } else
+                                        instance.throw("No session aviable, please recharge");
+                                };
+                                REQUEST(opt);
+                            } else {
+                                session.bye(true);
+                                replyBuilder(`END ${config.notFountMessage}`);
+                            }
+                        }
+
+                    } catch (error) {
+                        console.log("ERROR", error);
+                        return ctrl.error("Processing error");
+                    }
+                }, flags, 5120);
+                instance.status({ online: true });
+            } else {
+                instance.status({ online: false });
+            }
+        };
+
+        instance.close = function () {
+            // remove urls
+            if (prev) {
+                prev && prev.get && prev.get.remove();
+                prev && prev.post && prev.post.remove();
+                prev = null;
+                instance.status({ online: false });
+            }
+        };
+
+        instance.configure();
+    };
+
+</script>
+
+<readme>
+  This component registers an HTTP Route for USSD services and sends request data next. It stores `controller` instance in the `message.refs.controller` property. You must respond to the REST response component.
+
+  < __IMPORTANT__:<br>The component works only with a defined Proxy endpoint in the Flow settings.
+  < __URL__:<br>The URL must be relative to the defined Proxy endpoint. So if the endpoint is `/users/` and the desired address is `http://example.com/users/find` then the value must be `/find`  
+</readme>
+
+<settings>
+    <div class="padding">
+        <div class="row" data-bind="flow.head.worker__hide:!value || flow.head.origin.length < flow.head.proxyurl.length">
+			<div class="col-md-12 m">
+				<div class="message message-error"><b><i class="ti ti-warning"></i>No proxy endpoint defined.</b><br>This component will not work until then. Please go to main screen, open settings of this FlowStream instance and set the Endpoint.</div>
+			</div>
+		</div>
+		<div class="row">
+			<div class="col-md-8 m">
+				<ui-component name="input" path="?.url" config="required:1">Relative URL address</ui-component>
+				<div class="help">Relative path to: <ui-bind path="flow.head.proxyurl" config="text:value?value:window.location.origin"></ui-bind></div>
+			</div>
+			<div class="col-md-4 m">
+				<ui-component name="input" path="?.timeout" config="required:1;type:number">Timeout</ui-component>
+			</div>
+            <div class="col-md-12 m">
+                <ui-component name="input" path="?.notFountMessage" config="type:text;monospace:1;required:1">Not found service message</ui-component>
+            </div>
+		</div>
+        <div class="row m">
+            <section class="padding m">
+                <ui-component name="input" path="%debugsearch" config="type:search;placeholder:Search keyword"
+                    class="col-md-12 m"></ui-component>
+                <ui-component name="search" path="%debugsearch" config="selector:figure" class="col-md-12 m">
+                    <ui-component name="selection" path="?.outputs" config="datasource:%route_components;click:figure">
+                        <ui-bind path="%route_components" config="template" class="block listing2 small">
+                            <script type="text/html">
+                                {{ foreach m in value }}
+                                <figure data-search="{{ m.id }} {{m.name}} {{ if m.note }} {{ m.note }}{{ fi }}">
+                                    <section style="margin: 5px;">
+                                        <span class="selection" data-id="{{ m.id }}"><i class="ti ti-check"></i></span> {{m.name}} {{ if m.note }}<span class="gray ml10">{{ m.note }}</span>{{ fi }}
+                                    </section>
+                                </figure>
+                                {{ end }}
+                            </script>
+                        </ui-bind>
+                    </ui-component>
+                </ui-component>
+            </section>
+        </div>
+    </div>
+</settings>
+
+<style>
+    .CLASS footer {
+        padding: 10px;
+    }
+
+    .CLASS footer div ui-bind {
+        font-family: var(--monospace);
+    }
+
+    .CLASS footer .method {
+        background-color: var(--color);
+        color: #FFF;
+        padding: 2px 3px;
+        border-radius: var(--radius);
+    }
+
+    .CLASS header .ti.online,
+    .CLASS header .ti.offline {
+        background: #e91e63;
+        border-radius: 50%;
+        color: white;
+        padding: 2px;
+        font-size: 100%;
+    }
+
+    .CLASS header .ti.online {
+        background: #4caf50;
+    }
+
+    .CLASS footer span.title {
+        font-size: 11px;
+        color: #777;
+    }
+
+    .CLASS footer span.message {
+        font-size: 13px;
+        text-transform: capitalize;
+        font-variant: small-caps;
+        color: #414141;
+    }
+
+    .CLASS footer span.error {
+        font-size: 13px;
+        text-transform: capitalize;
+        font-variant: small-caps;
+        color: rgb(150, 28, 28);
+    }
+</style>
+
+<script>
+
+    // Client-side script
+    // Optional, you can remove it
+
+    // A custom helper for the component instances
+    // The method below captures each instance of this component
+    TOUCH(function (exports, reInit) {
+
+        var name = exports.name + ' --> ' + exports.id;
+        var url = "";
+        exports.settings = function (meta) {
+
+            var arr = [];
+
+            for (var key in flow.data) {
+                var tmp = flow.data[key];
+                if (tmp.Component && tmp.Component.id == "flow_route.total")
+                    arr.push({
+                        id: key,
+                        name: tmp.config.name ? tmp.config.name : tmp.Component.name,
+                        note: tmp.note,
+                        group: false,
+                        groupid: null,
+                        user: false,
+                    });
+            }
+
+            SET('%route_components', arr);
+        };
+
+        exports.emulator = function (show) {
+            if(url){
+                FUNC.ussd_simulator({
+                    title : "AfricasTalking USSD",
+                    endpoint : url
+                })
+            }else{
+                SETTER('notify/warning', 'Component is not configured');
+            }
+        };
+        exports.tmpnotifycopy = function(el) {
+			SETTER('clipboard/copy', url);
+			SETTER('notify/success', 'Endpoint Copied');
+		};
+        exports.configure = function (config, isInit) {
+            config.url = config.url ? config.url : ("/"+Math.random().toString(36).split(".")[1].substring(0,7));
+            url = `${ flow.head.proxyurl }/${config.url}`.replace(/\/+/g,"/").trim()
+            // Triggered when the config is changed
+            UPD('flow.data');
+        };
+
+        exports.status = function (status, isInit) {
+            // Triggered when the status is changed
+        };
+
+        exports.note = function (note, isInit) {
+            // Triggered when the note is changed
+        };
+
+        exports.variables = function (variables) {
+            // Triggered when the variables are changed
+        };
+
+        exports.variables2 = function (variables) {
+            // Triggered when the variables2 are changed
+        };
+
+        exports.close = function() {
+            NUL('%route_components');
+		};
+
+    });
+</script>
+
+<body>
+    <header>
+        <i class="ICON"></i> NAME
+    </header>
+    <footer>
+		<ui-bind path="STATUS" config="template" style="
+            flex:1;
+            flex-direction: row;
+            display: flex;
+        ">
+            {{ if value?.online }}
+                <a is="is-a" class="exec link"  style="width: 20px;" data-exec="/emulator"><span class="ti ti-mobile"></span></a>
+                <ui-bind path="STATUS" config="template" style="flex:1;">
+                    <ui-bind path="CONFIG.url" config="show" class="hidden block exec pointer" style="
+                        flex:1;
+                        text-align: right;
+                    " data-exec="/tmpnotifycopy">
+                        <span class="mr5"><i class="ti ti-copy"></i></span>
+                    </ui-bind>
+                </ui-bind>
+            {{else}}
+                <span>Offline</span>
+            {{fi}}
+		</ui-bind>
+    </footer>
+</body>

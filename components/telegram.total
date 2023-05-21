@@ -1,0 +1,1207 @@
+<script component>
+
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const mime = require('mime-types');
+    const QRCode = require('qrcode');
+    var isElectron = (typeof process !== 'undefined' && typeof process.versions === 'object' && !!process.versions.electron);
+    var databasesPath = path.join(process.env.KERI_FLOW_USER_DATA_DIR ? process.env.KERI_FLOW_USER_DATA_DIR : PATH.root(), 'databases');
+    var pref = JSON.parse(require('fs').readFileSync(PATH.join(databasesPath,"preferences.json")));
+    const { TelegramClient,Api } = require('telegram');
+    const { StringSession, MemorySession } = require('telegram/sessions');
+    const { NewMessage } = require('telegram/events');
+    const { AuthKey } = require('telegram/crypto/AuthKey');
+    const { CallbackQueryEvent,CallbackQuery } = require('telegram/events/CallbackQuery');
+    const { CustomFile } = require('telegram/client/uploads');
+    const { Button } = require("telegram/tl/custom/button");
+    const [TYPE_CHANNEL, TYPE_USER, TYPE_GROUP] = [0,1,2];
+
+    path.root = dir=>dir? PATH.join(PATH.root(),dir) : PATH.root();
+    path.mkdir = (dir, mode=null)=>fs.mkdirSync(dir,{recursive: true, ...((typeof mode == "string" && /^(r|w|x){1,3}$/) || typeof mode == "number" ? {mode} : {} )});
+
+    const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+    var database = NOSQL(`~/${databasesPath}/telegram`);
+
+	exports.name = 'Telegram';
+	exports.icon = 'fab fa-telegram';
+	exports.author = 'Oshimin Labs';
+	exports.version = '1';
+	exports.group = 'Connector';
+	exports.config = {
+        selectText: "Select a choice",
+        actionText: "Click here",
+        answerText: "Answer with one of the choices",
+        name : "telegram",
+        apiId : "",
+        apiHash : "",
+        botAuthToken : "",
+        type : null,
+        start : "",
+        needConnect : true,
+        forceOffline : false,
+        outputs : []
+    };
+	exports.inputs = [];
+	exports.outputs = [];
+
+	exports.npm = [];
+    exports.meta = {sendMessage:false, singleton : true, remove : false, readonly: true };
+
+
+    /// SESSION
+
+    class MySession extends MemorySession {
+        constructor(sessionName) {
+            super();
+            this.sessionName = sessionName;
+        }
+        async _getKey(key){
+            return new Promise(ok=>{
+                database.one()
+                    .where("session" , this.sessionName)
+                    .where("name",key)
+                    .callback((err, doc)=>{
+                        ok(err ? undefined : doc?.isBuffer ? Buffer.from(doc.value,"hex") : doc?.value);
+                    });
+            })
+        }
+        async _setKey(key, value){
+            return new Promise(ok=>{
+                database.modify({
+                    "session" : this.sessionName,
+                    "name":key,
+                    "value" : Buffer.isBuffer(value) ? value.toString("hex") : value,
+                    "isBuffer" : Buffer.isBuffer(value)
+                }, true)
+                .where("session" , this.sessionName)
+                .where("name",key)
+                .callback((err, doc)=>{
+                    ok(err ? undefined : doc);
+                });
+            })
+        }
+        async load() {
+            let authKey = await this._getKey("authKey");
+            if (authKey && typeof authKey === "object") {
+                this._authKey = new AuthKey();
+                if ("data" in authKey) {
+                    authKey = Buffer.from(authKey.data);
+                }
+                await this._authKey.setKey(authKey);
+            }
+
+            const dcId = await this._getKey( "dcId");
+            if (dcId) {
+                this._dcId = dcId;
+            }
+
+            const port = await this._getKey( "port");
+            if (port) {
+                this._port = port;
+            }
+            const serverAddress = await this._getKey("serverAddress");
+            if (serverAddress) {
+                this._serverAddress = serverAddress;
+            }
+        }
+
+        setDC(dcId, serverAddress, port) {
+            this._setKey("dcId", dcId);
+            this._setKey("port", port);
+            this._setKey("serverAddress", serverAddress);
+            super.setDC(dcId, serverAddress, port);
+        }
+
+        set authKey(value) {
+            this._authKey = value;
+            this._setKey("authKey", value?.getKey());
+        }
+
+        get authKey() {
+            return this._authKey;
+        }
+
+        processEntities(tlo) {
+            const rows = this._entitiesToRows(tlo);
+            if (!rows) {
+                return;
+            }
+            for (const row of rows) {
+                row.push(new Date().getTime().toString());
+                this._setKey(row[0], row);
+            }
+        }
+
+        getEntityRowsById(
+            id,
+            exact
+        ){
+            return this._getKey(id.toString());
+        }
+    }
+    var client,clientOfflineTTL;
+    var ephemeralExpiration = {
+        no : undefined,
+        day : 24 * 60 * 60,
+        week : 7 * 24 * 60 * 60,
+        months : 3 * 4 * 7 * 24 * 60 * 60
+    }
+    var callbackQueryHandler = {};
+    callbackQueryHandler.exec = async(id,...args)=>{
+        if(callbackQueryHandler[id]){
+            callbackQueryHandler[id](...args);
+        }
+    }
+    callbackQueryHandler.on = async(session,id, once=false)=>{
+        if(once){
+            var TTL;
+            return {
+                next : new Promise((ok, err)=>{
+                    callbackQueryHandler[session.sessionId+"::"+id]=(...args)=>{
+                        if(callbackQueryHandler[session.sessionId+"::"+id]){
+                            clearTimeout(TTL);
+                            delete callbackQueryHandler[session.sessionId+"::"+id];
+                            ok(...args);
+                        }
+                    };
+                    TTL = setTimeout(()=>{
+                        delete callbackQueryHandler[session.sessionId+"::"+id];
+                        err(new RangeError("Timeexced"))
+                    }, 60e3); // wait 2min
+                }),
+                stop(){
+                    callbackQueryHandler.exec(session.sessionId+"::"+id,undefined);
+                }
+            }
+        }
+        var setLast;
+        var last = new Promise(ok=>{
+            setLast = ok;
+        });
+        callbackQueryHandler[session.sessionId+"::"+id] = (...args)=>{
+            if(callbackQueryHandler[session.sessionId+"::"+id]){
+                clearTimeout(TTL);
+                delete callbackQueryHandler[session.sessionId+"::"+id];
+                setLast(...args);
+                // waitter for next call
+                last = new Promise(ok=>{
+                    setLast = ok;
+                })
+            }
+        };
+        return {
+            get next(){
+                return last;
+            },
+            stop(){
+                delete callbackQueryHandler[session.sessionId+"::"+id];
+                setLast(undefined);
+            }
+        };
+    }
+    callbackQueryHandler.once = async(session,id)=>callbackQueryHandler.once(session,id, true);
+    var usersInfo = {};
+    function format_text(text, clean){
+        return text.replace(/(?:\*)(?:(?!\s))((?:(?!\*|\n).)+)(?:\*)/g,clean ? '$1' : '<b>$1</b>')
+        .replace(/(?:_)(?:(?!\s))((?:(?!\n|_).)+)(?:_)/g,clean ? '$1' : '<i>$1</i>')
+        .replace(/(?:~)(?:(?!\s))((?:(?!\n|~).)+)(?:~)/g,clean ? '$1' : '<s>$1</s>')
+        .replace(/(?:--)(?:(?!\s))((?:(?!\n|--).)+)(?:--)/g,clean ? '$1' : '<u>$1</u>')
+        .replace(/(?:```)(?:(?!\s))((?:(?!\n|```).)+)(?:```)/g,clean ? '$1' : '<tt>$1</tt>');
+        
+    }
+    function getMessage(message, options, footer) {
+            if(options && typeof options == "object"){
+            options = arrayToObject(options);
+            return `${message.trim()}\n\n${Object.keys(options).map((key, index)=>`${key}. ${options[key]}`.trim() ).join('\n')}\n\n${footer|| ""}`.trim();
+        }else{
+            return `${message.trim()}\n\n${footer|| ""}`.trim();
+        }
+    }
+    async function getMediaFromFilePath(filePath, privacy){
+        const crypto = require('crypto');
+        var mimetype;
+        var buffer;
+        var ext;
+
+        if(/^data:[^;]+;(charset=[^;]+;)?[^,]+,/.test(filePath)){
+            let m = filePath.match(/^data:([^;]+);(charset=[^;]+;)?([^,]+),(.*)/);
+            mimetype = m[1];
+            buffer = Buffer.from(m[4],m[3]);
+            ext = mime.extension(mimetype); // 'bin'
+            buffer.name = "file."+ext;
+        }else{
+            mimetype = mime.lookup(filePath);
+            buffer = fs.readFileSync(filePath);
+            buffer.name = path.basename(filePath);
+            ext = mime.extension(mimetype) // 'bin'
+        }
+        var size = buffer.length;
+        var hash = crypto.createHash('md5').update(buffer).toString('base64');
+        switch (ext) {
+            case 'mp4':
+                return {
+                    fileSize : size,
+                    file : buffer,
+                    videoNote: size < 1024
+                }
+            case 'mp3':
+            // case 'mpga':
+                return {
+                    fileSize : size,
+                    file : buffer,
+                    voiceNote: size < 1024
+                }
+            case 'webp':
+            case 'gif':
+            case 'png':
+            case 'jpg':
+            case 'jpeg':
+                return {
+                    fileSize : size,
+                    file : buffer
+                }
+            default:
+                return {
+                    fileSize : size,
+                    file : buffer,
+                    forceDocument:true
+                }
+                break;
+        }
+    }
+    
+    async function getMediaFromUrl(url,privacy){
+        var size = 0;
+        var filePath = new URL(url).pathname;
+        var ret =  await new Promise(returnMedia=>{
+            var opt = {};
+            opt.url = url;
+            opt.limit = 1.6e+7; // Max 16Mb
+            opt.insecure = true;
+            opt.dnscache = true;
+            opt.method = "GET";
+            // opt.custom = true;
+            opt.type = "raw";
+            opt.callback = async function(err, {headers,body : buffer}) {
+                if(err){
+                    throw err;
+                }
+                var mimetype = `${headers["content-type"]}`.split(";")[0].trim();
+                var ext = mime.extension(mimetype) // 'bin'
+                buffer.name = path.parse(filePath).name+"."+ext;
+                switch (ext) {
+                    case 'mp4':
+                        returnMedia({
+                            fileSize : buffer.length,
+                            file: buffer,
+                            videoNote: buffer.length < 1024
+                        });
+                    case 'mp3':
+                    // case 'mpga':
+                        returnMedia({
+                            fileSize : buffer.length,
+                            file: buffer,
+                            voiceNote: buffer.length < 1024
+                        });
+                    case 'webp':
+                    case 'gif':
+                    case 'png':
+                    case 'jpg':
+                    case 'jpeg':
+                        returnMedia({
+                            fileSize : buffer.length,
+                            file: buffer
+                        });
+                    default:
+                        returnMedia({
+                            fileSize : buffer.length,
+                            file: buffer,
+                            forceDocument: true
+                        });
+                        break;
+                }
+            };
+
+            REQUEST(opt);
+        });
+        return ret;
+    }
+    async function sendMessage({to,replyToMsgId,message,url, instance,privacy, defaultEphemeral, buttons}){
+        var ret = null;
+        if(!client) return instance.throw("Unable to send message, client disconnected");
+        privacy = instance.config.type == "bot" ? undefined : ephemeralExpiration[privacy] ?? (defaultEphemeral ?? ephemeralExpiration.no);
+        var file;
+        try {
+            if(url && (/^http(s)?:\/\//.test(url) || /^data:[^;]+;(charset=[^;]+;)?[^,]+,/.test(url) || fs.existsSync(url))){
+                try{
+                    file = !(/^http(s)?:\/\//.test(url)) ? await getMediaFromFilePath(url, privacy) : await getMediaFromUrl(url, privacy);
+                } catch (error) {
+                    console.error(error);
+                    instance.throw(`Unable to send media.\n${url}`);
+                }
+            }
+            if(!file){
+                ret = await client.sendMessage(to,{
+                    peer: to,
+                    replyToMsgId,
+                    message: format_text(message).trim(),
+                    buttons : instance.config.type == "bot" ? (buttons || new Api.ReplyKeyboardHide({selective:false})) : [],
+                    schedule: privacy,
+                    scheduleDate: privacy,
+                    parseMode:"html"
+                });
+            }else{
+                ret = await client.sendFile(to,{
+                    ...(file),
+                    peer: to,
+                    replyToMsgId,
+                    caption: format_text(message).trim(),
+                    buttons : instance.config.type == "bot" ? (buttons || new Api.ReplyKeyboardHide({selective:false})) : [],
+                    schedule: privacy,
+                    scheduleDate: privacy,
+                    worker : 2,
+                    parseMode:"html"
+                });
+            }
+
+            return ret;
+        } catch (error) {
+            console.error("SEND MESSAGE ERROR", error)
+        }
+    }
+    
+    async function sendMessageTo(to, message, mediaUrl,privacy,instance) {
+        instance.throw(`send message is not yet implemented`);
+        return null;
+    }
+    
+    function arrayToObject( options) {
+        if(options && typeof options == "object" && !Array.isArray(options)){
+            return options;
+        }else if(options && typeof options == "object" && Array.isArray(options)){
+            return options.reduce((ret, value,index)=>{
+                ret[index+1] = value;
+                return ret;
+            },{});
+        }else{
+            return {};
+        }
+    }
+    // LOG MESSAGE FUNCTION
+    function matchstick(path) {
+        return {
+            // create regex
+            path: new RegExp("^" + path.trim().replace(/[ ]+/g," ").replace(/\{[^\s/]+\}/g, '([\\w-]+)') + "$","im"),
+            keys: path.match(/\{[^\s/]+\}/g)?.map(e=>e.replace(/(\{|\})/g,"")),
+            match(text){
+                var i = 0;
+                return text?.trim().replace(/[ ]+/g," ").match(this.path)?.splice(1).reduce((ret, el)=>{
+                    ret[this.keys[i++]] = el;
+                    return ret;
+                },{});
+            }
+        };
+    }
+    async function initEvents(config,status,instance,onDisconnect){
+        client.addEventHandler(async (event) => {
+            const sender = await event.message.getSender();
+            var clientInfo = 
+                sender && sender.phone ? 
+                `+${sender.phone}` : 
+                (sender.name ? `${sender.username}` : "") ;
+                        
+            var ctrl = {
+                sessionId: `${sender.id}@telegram`,
+                /** @type {string} */
+                id : event.message.id,
+                /** @type {boolean} */
+                fromMe : sender.self,
+                /** @type {string} */
+                from : sender.id,
+                /** @type {string} */
+                to : event.message.peerId.userId,
+                /** @type {string} */
+                pushName : clientInfo,
+                /** @type {boolean} */
+                isGroup : !!event.message.groupedId,
+                /** @type {string | null} */
+                group : event.message.groupedId,
+                /** @type {boolean} */
+                isStatus : false,
+                /** @type {boolean} */
+                isUser : !event.message.groupedId,
+                /** @type {string} */
+                body : `${event.message.message || ""}`,
+                /** @type {string} */
+                provider : "telegram",
+                /** @type {string} */
+                cleanBody : format_text(`${event.message.message || ""}`,true).trim()
+            }
+            if(ctrl.fromMe) return;
+            var isUser = ctrl.isUser,
+            isGroup = ctrl.isGroup,
+            isStatus = false;
+
+            if(isStatus || !config.name || config.outputs.length == 0) return; // ignore messages
+            var session = new SharedMemory(ctrl, {
+                id       : ctrl.id,
+                body     : ctrl.body,
+                from     : ctrl.from, 
+                to       : ctrl.to, 
+                isStatus : ctrl.isStatus,
+                isGroup  : ctrl.isGroup,
+                isUser  : ctrl.isUser
+            });
+            await session.ready;
+            /// Core Functions
+            //// sayWelcome : welcome message
+            await session.setItem("sayWelcome",async function (message) {
+                if(`${message}`.trim()){
+                    await sendMessage({to : ctrl.from,message: getMessage(message), instance});
+                    await session.setItem("welcome" ,true);
+                }   
+            });
+            //// securePin : ask a pin to a user
+            await session.setItem("securePin",async function ({
+                message,
+                returnMessage,
+                urlMessage,
+                mediaUrl,
+                TTL, 
+                timeout,
+                privacy
+            }) {
+                try {
+                    await sendMessage({to : ctrl.from,message: getMessage(message), instance, privacy});
+                    var ret = await SharedMemory.remotePin({
+                        message,
+                        return_message : returnMessage,
+                        callback : async (link)=>{
+                            if(config.type=='bot'){
+                                await sendMessage({
+                                    to : ctrl.from,
+                                    message:  getMessage(`${urlMessage}`.trim()),
+                                    instance, privacy,
+                                    buttons :  [Button.url(getMessage(`${message}`.trim()), link)]
+                                });
+                            }else{
+                                await sendMessage({
+                                    to : ctrl.from,
+                                    message: getMessage(`${link}\n${urlMessage}`),
+                                    url: mediaUrl,
+                                    defaultEphemeral : ephemeralExpiration.day,
+                                    instance, 
+                                    privacy
+                                });
+                            }
+                        },
+                        TTL, 
+                        timeout
+                    });
+                    return ret;
+                } catch (error) {
+                    instance.throw(`${error}`);
+                    return null; 
+                }
+            });
+            //// confirm : send a message and wait for a confirmation
+            await session.setItem("confirm", function ({
+                message,
+                confirmText,
+                yesValue,
+                noValue,
+                yesText,
+                noText,
+                mediaUrl,
+                privacy
+            }) {
+                return new Promise(async (okFn,errFn)=>{
+                    try {
+                        
+                        var btnMsg;
+                        yesText = yesText || "yes";
+                        noText = noText || "no";
+                        confirmText = confirmText || `Reply *${yesText}* or *${noText}*`;
+                        await session.setItem("input", async function (response) {
+                            var clean = (str)=>str.toString().replace(/[ ]+/g," ").toUpperCase();
+                            var res = clean(response) == clean("1") || clean(response) == clean(yesValue) || clean(response) == clean(yesText);
+                            await session.setItem("input",null);  // clear answer handler
+                            okFn(res ? yesValue : noValue);
+                        });
+                        var msg = await sendMessage({
+                            to : ctrl.from,
+                            message:  getMessage(`${message}\n\n${config.type=='bot'? `${confirmText}` : `1. ${yesText}\n2. ${noText}\n\n${confirmText}`}`.trim()),
+                            url: mediaUrl,
+                            instance,
+                            privacy,
+                            buttons :  [Button.forceReply() ,Button.text(yesText,true,true,true),Button.text(noText,true,true,true)]
+                        });
+
+                    } catch (error) {
+                     console.error("CONFIRM ERROR", error)   
+                    }
+                });
+            });
+            //// message : send message to someone
+            await session.setItem("message",(to, message, mediaUrl,privacy)=>sendMessageTo(to, message, mediaUrl,privacy,instance));
+            //// reply : send reply to user
+            await session.setItem("reply",async function (message, ask, options,mediaUrl,privacy) {
+                try {
+                    let msg = await sendMessage({
+                        to : ctrl.from,
+                        replyToMsgId : ctrl.id,
+                        message: getMessage(message, options,options && Object.keys(options).length ? config.answerText : ""),
+                        url: mediaUrl,
+                        instance, privacy,
+                        buttons : options && Object.keys(options).length ?  
+                        [Button.forceReply()].concat(Object.keys(options).map(key=>Button.text(`${key}`.trim(),true,true,true))) 
+                        : undefined
+
+                    });
+                    if(!ask || !session.input){
+                        session.bye();
+                    }
+                }catch(error){
+                    console.error("REPY ERROR", error)   
+                }
+            });
+            // handle close session 
+            var byeSent = false;
+            await session.onBye((force,session)=>{
+                if(byeSent) return;
+                byeSent = true;
+                if(session.forceCloseMessage && force){
+                    sendMessage({
+                        to : ctrl.from,
+                        message: getMessage(session.forceCloseMessage),
+                        instance, privacy
+                    });
+                }else if(session.softCloseMessage && !force){
+                    sendMessage({
+                        to : ctrl.from,
+                        message: getMessage(session.softCloseMessage),
+                        instance, privacy
+                    });
+                }
+            })
+            var instanceToSendTheAnswer = session.input ?? null, response = null;                        
+            if(instanceToSendTheAnswer && typeof instanceToSendTheAnswer == "function"){
+                await instanceToSendTheAnswer(( ctrl?._data?.listResponse?.singleSelectReply?.selectedRowId ?? ctrl.cleanBody));
+            }else{
+                var msg = {
+                    sessionId : session.sessionId,
+                    data : session.data,
+                    params : session.params || {},
+                    response
+                };
+                var output, params = {}
+                // detect if it's start command
+                if(config.start && ctrl.cleanBody.toLowerCase() === "/start"){
+                    var output = instance.main.meta.flow[config.start];
+                    if(!output){
+                        instance.throw("Startup process not found");
+                        session.bye();
+                        return;
+                    }
+                } else if(!ctrl.cleanBody){
+                    session.bye(true);
+                    return;
+                }
+                if(!output){
+                    // return;
+                    config.outputs.some(id=>{
+                        var target = instance.main.meta.flow[id];
+                        if(!target || !target.config.name || (isUser && !target.config.user) || (isGroup && !target.config.group)) return false;
+                        // must check 
+                        var m = matchstick(target.config.name);
+                        m = m.match(ctrl.cleanBody.trim());
+                        var ret = !!(m || target.config.name.trim().toUpperCase() == ctrl.cleanBody.trim().toUpperCase());
+                        if(ret){
+                            output = target;
+                            params = m;
+                            msg.params = {
+                                ...msg.params,
+                                ...params
+                            };
+                        }
+                        return ret;
+                    })
+                }
+
+                if(output){
+                    if(config.type=='user')
+                        await event.message.markAsRead();
+                    await session.setItem("params", msg.params);
+                    // save params to inputs
+                    await session.setItem("inputs",{
+                        ...(session.inputs ?? {}),
+                        ...params
+                    });
+                    // read online stats
+                    var user;
+                    try {
+                        var pref = JSON.parse(fs.readFileSync(PATH.join(databasesPath,"preferences.json")));
+                        user = pref.user;
+                        // if(!user) throw new Error("Can't get User Information");
+                    } catch (error) {
+                    }
+                    if(!user) return instance.throw("Error when read the connected user");
+                    var opt = {};
+                    opt.url = `${pref.mayaHost}/check_user`;
+                    opt.body = JSON.stringify({
+                        "login" : pref.user.login,
+                        "id" : pref.user._id
+                    });
+                    opt.method = "POST";
+                    opt.type = "json";
+                    opt.dnscache = true;
+                    opt.insecure = true;
+                    var sessions = 0;
+                    opt.callback = function(err, response) {
+                        if(!err && response && response.status == 200){
+                            var user = response.body;
+                            user = user.parseJSON();
+                            if(user){
+                                sessions = user.sessions;
+                            }
+                        }
+                        if(sessions > 0){
+                            output.message(instance.newmessage(msg));
+                        }else
+                            instance.throw("No session aviable, please recharge");
+                    };
+                    REQUEST(opt);
+                }else{
+                    session.bye(true);
+                }
+            }
+        },new NewMessage({}));
+        client.addEventHandler(async (event)=>{
+            callbackQueryHandler.exec(`${event.query.peer.userId}@telegram`+"::"+event.query.msgId,event.query)
+        }, new CallbackQuery({}));
+
+    }
+
+    function setOnline(instance,config, status){
+        config.needConnect = false;
+        status.online = !config.needConnect;
+        config.info = status.clientInfo;
+        status.message = null;
+        status.error = null;
+        status.qr = null;
+        status.type = config.type;
+        status.needConfig = !(config.type == "user" ? (config.apiHash && config.apiId) : (config.botAuthToken && config.apiHash && config.apiId));
+        instance.status(status);
+        instance.save();
+    }
+    function setOffline(instance,config, status){
+        config.needConnect  = true;
+        config.info = null;
+        status = {
+            type : config.type,
+            online : !config.needConnect,
+            qr : null,
+            clientId : instance.id,
+            clientInfo : null,
+            message : null,
+            error : null,
+            needConfig : !(config.type == "user" ? (config.apiHash && config.apiId) : (config.botAuthToken && config.apiHash && config.apiId))
+        };
+        instance.status(status);
+        instance.save();
+        database.remove().where("session", instance.id).callback(()=>{
+            database.clean()
+        });
+        
+    }
+    async function createClient(config, status, instance){
+
+        if(status.needConfig || config.forceOffline){
+            return setOffline(instance,config,status);
+        }
+        
+        status.error = null;
+        status.message = "Connecting...";
+        status.qr = null;
+        instance.status(status);
+        var connect = async (logout)=>{
+            var reconnect = false;
+            if(client){
+                if(logout){
+                    const result = await client.invoke(new Api.auth.LogOut({}));
+                    config.sessionToken = "";
+                
+                }
+                await client.disconnect();
+                await client.destroy();
+                reconnect = true;
+            }
+            if(!reconnect){
+                var c = new TelegramClient(new MySession(instance.id/*config.sessionToken ?? ""*/), config.apiId, config.apiHash, {
+                    connectionRetries: 5,
+                    deviceModel : isElectron ? 'Desktop App': 'Server',
+                    systemVersion : `Keri Flow ${isElectron ? "App" : "Pro"}`,
+                    appVersion :  '1.0.14',
+                    useWSS : true
+                });
+                await c.connect();
+                delete client;
+                client = c;
+            }
+        }
+        await connect();
+        if(config.type == 'bot'){
+            try {
+                var bot;
+                if (await client.checkAuthorization()){
+                    if(await client.isBot()){
+                        bot = await client.getMe();
+                    }else{
+                        await connect(true);
+                    }
+                }
+                if(!bot){
+                    await client.connect();
+                    bot = await client.signInBot({
+                        apiId : config.apiId,
+                        apiHash : config.apiHash
+                    },{
+                        botAuthToken: config.botAuthToken,
+                    });
+                    config.sessionToken = client.session.save();
+                }
+                status.clientInfo = bot && bot.phone ? `+${bot.phone}` : (bot.username ? `@${bot.username}` : config.name) ;
+            } catch (error) {
+                console.error("ERROR", error, config.botAuthToken)
+                if(`${error}`.toLowerCase() == "disconnected"){
+                    setOffline(instance,config,status);
+                }
+                status.error = error.code == 400 ? 'BAD BOT TOKEN' : `${error}`;
+                return client;
+            }
+        } else {
+            try {
+                var user;
+                if (await client.checkAuthorization()){
+                    if(!await client.isBot()){
+                        await connect(true);
+                    }else{
+                        user = await client.getMe();
+                    }
+                }
+                if(!user){
+                    status.message = "Wait QRcode...";
+                    status.qr = null;
+                    instance.status(status);
+                    await client.connect();
+                    user = await client.signInUserWithQrCode({
+                            apiHash : config.apiHash,
+                            apiId : config.apiId
+                        },
+                        {
+                            onError: async function(p1) {
+                                console.error("error", p1);
+                                // true = stop the authentication processes
+                                return true;
+                            },
+                            qrCode: async (code) => {
+                                var qr = `tg://login?token=${code.token.toString("base64url")}`;
+                                QRCode.toDataURL(qr.replace(/,1$/,""),(err, url) => {
+                                    status.qr = url;
+                                    instance.status(status);
+                                })
+                            },
+                            password: async (hint) => {
+                                // password if needed
+                                return null;
+                            }
+                        }
+                    );
+                    config.sessionToken = client.session.save();
+                }
+            } catch (error) {
+                console.error("ERROR USER", instance.id, error.code, error)
+                status.error = error.code == 400 ? ' ERROR BAD API' : `${error}`;
+                return client;
+            }
+            status.clientInfo = user && user.phone ? `+${user.phone}` : (user.username ? `@${user.username}` : config.name) ;
+        }
+        config.info = status.clientInfo;
+        setOnline(instance,config, status)
+        instance.status(status);
+        await initEvents(config,status,instance,(status)=>createClient(config, status, instance));
+        return client;
+    }
+
+    exports.make = function(instance, config) { 
+        var oldConfig = {
+            ...config
+        };
+        var clientInBuilding = false;
+        var status = {
+            online : false,
+            qr : null,
+            clientId : instance.id,
+            clientInfo : null,
+            message : null,
+            error : null,
+            needConfig : true,
+            state : "",
+            type : config.type
+        };
+
+        instance.message = async function($) {
+            if(!client){
+                return instance.throw("Not configured");
+            }
+            if($ && $.data){
+                sendMessageTo($.data.to, $.data.message, $.data.mediaUrl,$.data.privacy,instance);
+            }
+		};
+        instance.trigger = async function() {
+			// disconnect the client
+            if(status.online){
+                await setOffline(instance,config, status);
+            }
+            config.forceOffline =  (await client?.checkAuthorization()) || false;
+            if(client){
+                status.message ="Disconnect...";
+                instance.status(status);
+                const result = await client.invoke(new Api.auth.LogOut({}));
+                await client.disconnect();
+                await client.destroy();
+                status.message = null;
+                instance.status(status);
+            }
+            client = await createClient(config, status, instance);    
+		};
+		instance.configure = async function() {
+            status.needConfig = !(config.type == "user" ? (config.apiHash && config.apiId) : (config.botAuthToken && config.apiHash && config.apiId));
+            if(
+                oldConfig.botAuthToken != config.botAuthToken ||
+                oldConfig.apiId != config.apiId || 
+                oldConfig.apiHash != config.apiHash
+            ){
+                if(client){
+                    await client.disconnect();
+                    await client.destroy();
+                    setOffline(instance,config, status)
+                }
+                if(config.botAuthToken || config.apiId && config.apiHash){
+                    client = await createClient(config, status, instance);
+                }
+            }
+            oldConfig = {
+                ...config
+            };
+            if(config.name && !client){
+                if(!clientInBuilding){
+                    clientInBuilding = true;
+                    setTimeout(async ()=>{
+                        client = await createClient(config, status, instance);
+                        clientInBuilding = false;
+                    }, 1e3);
+                }
+            }
+            status.type = config.type;
+            instance.status(status);
+		};
+        
+		instance.close = function() {
+            // this instance is closed
+            if(client) client.destroy();
+            client = undefined;
+            database.remove().where("session", instance.id).callback(()=>{
+                database.clean()
+            });
+		};
+        
+		instance.variables = function(variables) {
+            // FlowStream variables are changed
+		};
+        
+		instance.variables2 = function(variables) {
+            // Global variables are changed
+		};
+
+        instance.status(status);
+		instance.configure();
+
+	};
+
+</script>
+
+<readme>
+## How Connect Your Telegram
+
+### Obtain API ID and API KEY
+
+1. Login into your [telegram account](https://my.telegram.org/)
+2. Then click "API development tools" and fill your application details (only app title and short name required)
+3. Finally, click "Create application"
+
+
+> **Never** share any API/authorization details, that will compromise your application and account.
+
+When you've successfully created the application, you can get Api Id and Api Key.
+
+### Create a new Telegram bot with BotFather
+
+1. Start a new conversation with the [BotFather](https://telegram.me/botfather).
+2. Send */newbot* to create a new Telegram bot.
+3. When asked, enter a name for the bot. (the name must end with the word "bot").
+4. Copy the Telegram bot's access token.
+
+
+
+### Configure
+
+1. Set API ID
+2. Set API KEY
+3. Set Phone Number
+4. Set Password
+5. Apply, you will receive the code
+6. Open configuration ans set the phone code
+7. Apply and click on *Connection    
+</readme>
+
+<settings>
+    <ui-bind path="?.type" config="show" class="hidden row m">
+        <ui-bind path="?.type" config="show:value=='bot'" class="hidden block col-md-8 m">
+            <ui-component name="input" path="?.name" config="type:text;monospace:1;required:1">Name</ui-component>
+        </ui-bind>
+        <ui-bind path="?.type" config="show::value=='user'" class="hidden block col-md-12 m">
+            <ui-component name="input" path="?.name" config="type:text;monospace:1;required:1">Name</ui-component>
+        </ui-bind>
+        
+        <ui-bind path="?.type" config="show:value=='bot'" class="hidden block col-md-4 m">
+            <ui-component 
+                name="input" 
+                path="?.start" 
+                config="type:select;dirsource:%out_components">
+                Start process
+            </ui-component>
+            <div class="help">Optional, Respond to <b>/start</b> command.</div>
+        </ui-bind>
+        <section class="padding m">
+            <div class="row m">
+                <ui-bind path="?.type" config="show:value=='bot'" class="hidden block col-md-12 m">
+                    <label class="ui-input-label">Bot Access Token</label>
+                    <ui-component name="input" path="?.botAuthToken" config=""></ui-component>
+                </ui-bind>
+                <div class="block col-md-6 m">
+                    <label class="ui-input-label">API ID</label>
+                    <ui-component name="input" path="?.apiId" config=""></ui-component>
+                </div>
+                <div class="block col-md-6 m">
+                    <label class="ui-input-label">API Hash</label>
+                    <ui-component name="input" path="?.apiHash" config=""></ui-component>
+                </div>
+            </div>
+            <hr>
+            <label class="ui-input-label m">Lists Texts</label>
+            <div class="row m">
+                <div class="col-md-6 m">
+                    <label class="ui-input-label">Select Text</label>
+                    <ui-component name="input" path="?.selectText" config="maxlength:150"></ui-component>
+                </div>
+                <div class="col-md-6 m">
+                    <label class="ui-input-label">Action Text</label>
+                    <ui-component name="input" path="?.actionText" config="maxlength:150"></ui-component>
+                </div>
+                <div class="col-md-12 m">
+                    <label class="ui-input-label">Answer Text</label>
+                    <ui-component name="input" path="?.answerText" config="maxlength:150"></ui-component>
+                </div>
+            </div>
+            <hr>
+            <ui-component name="input" path="%debugsearch" config="type:search;placeholder:Search keyword"  class="col-md-12 m"></ui-component>
+            <ui-component name="search" path="%debugsearch" config="selector:figure"  class="col-md-12 m">
+                <ui-component name="selection" path="?.outputs" config="datasource:%route_components;click:figure">
+                    <ui-bind path="%route_components" config="template" class="block listing2 small">
+                        <script type="text/html">
+                            {{ foreach m in value }}
+                            <figure data-search="{{ m.id }} {{m.name}} {{ if m.note }} {{ m.note }}{{ fi }}">
+                                <section style="margin: 5px;">
+                                    <span class="selection" data-id="{{ m.id }}"><i class="ti ti-check"></i></span> {{m.name}} {{ if m.note }}<span class="gray ml10">{{ m.note }}</span>{{ fi }}
+                                </section>
+                            </figure>
+                            {{ end }}
+                        </script>
+                    </ui-bind>
+                </ui-component>
+            </ui-component>
+        </section>
+    </ui-bind>
+    <ui-bind path="?.type" config="show:!value" class="hidden padding m" style="
+        height: 200px;
+        display: flex;
+        flex-direction: column-reverse;
+        align-items: center;
+        justify-content: center;
+    ">
+        <label class="ui-input-label">Choose your account type</label>
+        <ui-component name="choose" path="?.type" config="selector:div;limit:1" class="iconmenu m">
+            <div data-id="bot">
+                <i class="ti ti-robot-alt"></i>
+                <span>Bot</span>
+            </div>
+            <div data-id="user">
+                <i class="ti ti-mobile"></i>
+                <span>Account</span>
+            </div>
+        </ui-component>
+    </ui-bind>
+</settings>
+
+<style>
+	.CLASS footer { padding: 10px; }
+	.CLASS footer div ui-bind { font-family: var(--monospace); }
+	.CLASS footer .method { background-color: var(--color); color: #FFF; padding: 2px 3px; border-radius: var(--radius); }
+	.CLASS header .ti.online ,
+	.CLASS header .ti.offline {
+		background: #e91e63;
+		border-radius: 50%;
+		color: white;
+		padding: 2px;
+		font-size: 100%;
+	}
+	.CLASS header .ti.online {
+		background: #4caf50;
+	}
+    .CLASS footer span.title {
+        font-size: 11px;
+        color: #777;
+    }
+    .CLASS footer span.message {
+        font-size: 13px;
+        text-transform: capitalize;
+        font-variant: small-caps;
+        color: #414141;
+    }
+
+    .CLASS footer span.error {
+        font-size: 13px;
+        text-transform: capitalize;
+        font-variant: small-caps;
+        color: rgb(150, 28, 28);
+    }
+</style>
+
+<script>
+
+	// Client-side script
+	// Optional, you can remove it
+
+	// A custom helper for the component instances
+	// The method below captures each instance of this component
+	TOUCH(function(exports, reInit) {
+
+		var name = exports.name + ' --> ' + exports.id;
+        var selected = "bot";
+
+		exports.settings = function(meta) {
+
+            var arr = [];
+
+            for (var key in flow.data) {
+                var tmp = flow.data[key];
+                if (tmp.Component && tmp.Component.id ==  "flow_route.total")
+                    arr.push({
+                        id: key, 
+                        name: tmp.config.name ? tmp.config.name : tmp.Component.name, 
+                        note : tmp.note,
+                        group : false,
+                        groupid : null,
+                        user : false,
+                    });
+            }
+
+            SET('%route_components', arr);
+
+            var orders = [{
+                id: "",
+                name : "No keyword"
+            }];
+
+            for (var key in flow.data) {
+                var tmp = flow.data[key];
+                if (tmp.Component && tmp.Component.id ==  "flow_route.total"){
+                    orders.push({ id: key, name: tmp.config.name });
+                }
+            }
+
+            SET('%out_components', orders);
+        };
+		exports.configure = function(config, isInit) {
+			// Triggered when the config is changed
+			UPD('flow.data');
+		};
+
+		exports.status = function(status, isInit) {
+			// Triggered when the status is changed
+		};
+
+		exports.note = function(note, isInit) {
+			// Triggered when the note is changed
+		};
+
+		exports.variables = function(variables) {
+			// Triggered when the variables are changed
+		};
+
+		exports.variables2 = function(variables) {
+			// Triggered when the variables2 are changed
+		};
+
+		exports.close = function() {
+			// Triggered when the instance is closing due to some reasons
+		};
+
+	});
+</script>
+
+<body>
+	<header>
+		<i class="ICON"></i>
+        <ui-bind path="STATUS" config="template">
+        {{ if value?.clientInfo }}
+            <ui-bind path="STATUS.clientInfo" config="text:value ? (value) : 'NAME'"></ui-bind>
+        {{else}}
+            <ui-bind path="CONFIG.name" config="text:value ? value : 'NAME'"></ui-bind>
+        {{ fi }}
+        </ui-bind>
+	</header>
+	<footer>
+        <ui-bind path="STATUS" config="template" style="flex:1;">
+            {{ if value?.type }}
+                {{ if value?.error }}
+                    <span class="error" data-bind="STATUS.error__text:value"></span>
+                {{else}}
+                    {{ if value?.qr }}
+                        <span class="title">Scan QRCode to connect</span><br>
+                        <img style="width: 100%;" data-bind="STATUS.qr__src:value" />
+                    {{else}}
+                        {{ if value?.message }}
+                            <span class="message" style="border: none;" data-bind="STATUS.message__text:value"></span>
+                        {{else}}
+                            {{ if value?.online }}
+                                <button class="exec button" data-exec="FUNC.trigger">Disconnect</button>
+                            {{else}}
+                                {{ if value?.needConfig }}
+                                    Not configured
+                                {{else}}
+                                    <button class="exec button" data-exec="FUNC.trigger">Connect</button>
+                                {{ fi }}
+                            {{ fi }}
+                        {{ fi }}
+                    {{ fi }}
+                {{ fi }}
+            {{ else }}
+                Choose Type
+            {{ fi }}
+        </ui-bind>
+        </footer>
+</body>
+ 

@@ -1,0 +1,230 @@
+<script component>
+    exports.name = 'Email';
+    exports.group = 'Services';
+    exports.icon = 'ti ti-at';
+    exports.version = '1';
+    exports.npm = [];
+    exports.config = {
+        message: "",
+        subject : "",
+        from : "",
+        to : "",
+        bcc : "",
+        cc : "",
+        host : "",
+        port : 587,
+        secure : false,
+        user : "",
+        pass : "",
+        hasCode : false,
+        code: `
+// data {Object}
+// params {Object}
+// session {SessionObject}
+// variables {Object.<String, String>} - global variables
+
+  sendMail({
+    from: '"Fred Foo 👻" <foo@example.com>', // sender address
+    to: "bar@example.com, baz@example.com", // list of receivers
+    subject: "Hello ✔", // Subject line
+    text: "Hello world?", // plain text body
+    html: "<b>Hello world?</b>", // html body
+  });
+`
+    };
+    exports.inputs = [{ id: 'input', name: 'Data' }];
+    exports.outputs = [];
+    exports.meta = {readonly: true, remove: false};
+
+    const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
+
+
+    exports.make = function(instance, config) {
+      let transporter;
+        var init = ()=>{};
+        var templates = {};
+        instance.message = async function($) {
+            if(transporter == null){
+              return instance.throw("Not configured");
+            }
+            var session = new SharedMemory($);
+            await session.ready;
+
+            if(!(session.sessionId && session.reply && typeof session.reply == "function")){
+                session = SharedMemory.empty;
+								session.data = $.data ?? $;
+            }
+            // execute init;
+            if(config.hasCode){
+                var _init;
+                try {
+                    _init = await init(session.data,session,{...instance.main.variables2,...instance.main.variables,}, (opts)=>{
+                      transporter.sendMail(opts);
+                      throw "EXIT";
+                    });
+                } catch (error) {
+                    if(error == "EXIT"){
+                        return; // stop function
+                    }
+                    instance.throw(error);
+                    return;
+                }
+            }
+            // show message
+            var dom = `${templates['MESSAGE']({
+                  data : session.data ?? {},
+                  session : session,
+                  variables : {...instance.main.variables2,...instance.main.variables,}
+              })}`.parseHTML();
+            var e = transporter.sendMail({
+              ...(['subject','from','to','bcc','cc'].reduce((ret, key)=>{
+                if(templates[key.toUpperCase()]){
+                  ret[key] = `${templates[key.toUpperCase()]({
+                      data : session.data ?? {},
+                      session : session,
+                      variables : {...instance.main.variables2,...instance.main.variables,}
+                  })}`;
+                }
+                return ret;
+              },{})),                  
+              text : dom.innerText,
+              html : dom.innerText != dom.innerHTML ? dom.innerHTML : undefined 
+            });
+            console.error("SendMail",e);
+        
+        };
+
+        instance.configure = function() {
+            if(config.code.trim())
+                init = new Function("data, session , variables, sendMail",`return (async ()=>{;\n${config.code};\n})();`);
+            else
+                init = ()=>{};
+            ['message','subject','from','to','bcc','cc'].forEach(key=>{
+              if(config[key]){
+                  templates[key.toUpperCase()] = Tangular.compile(config[key]);
+              }else{
+                  templates[key.toUpperCase()] = "";
+              }
+            })
+            try {
+              transporter = require('nodemailer').createTransport({
+                host: config.host,
+                port: parseInt(config.port),
+                secure: !!config.secure, // true for 465, false for other ports
+                auth: {
+                  user: config.user, // generated ethereal user
+                  pass: config.pass, // generated ethereal password
+                },
+              });              
+            } catch (error) {
+              transporter = undefined;
+            }
+
+            instance.save();
+        };
+
+        instance.configure();
+    };
+
+</script>
+
+<readme>
+# readme
+</readme>
+
+<settings>
+    <div class="padding">
+        <div class="row m">
+            <div class="col-md-6 m">
+              <label class="ui-input-label">From</label>
+              <ui-component name="input" path="?.from" config="required:1;placeholder:@(From)"></ui-component>
+            </div>
+            <div class="col-md-6 m">
+              <label class="ui-input-label">To</label>
+              <ui-component name="input" path="?.to" config="required:1;placeholder:@(To)"></ui-component>
+            </div>
+            <div class="col-md-6 m">
+              <label class="ui-input-label">CC</label>
+              <ui-component name="input" path="?.cc" config="placeholder:@(CC)"></ui-component>
+            </div>
+            <div class="col-md-6 m">
+              <label class="ui-input-label">BCC</label>
+              <ui-component name="input" path="?.bcc" config="placeholder:@(BCC)"></ui-component>
+            </div>
+            <div class="col-md-12 m">
+              <label class="ui-input-label">Subject</label>
+              <ui-component name="input" path="?.subject" config="required:1;placeholder:@(Subject)"></ui-component>
+            </div>
+            <div class="col-md-12 m">
+                <label class="ui-input-label">Email</label>
+                <ui-component name="textarea" path="?.message" config="height:150;placeholder:@(Write your message)"></ui-component>
+            </div>
+            <hr/>
+            <div class="col-md-9 m">
+              <label class="ui-input-label">Host</label>
+              <ui-component name="input" path="?.host" config="required:1;placeholder:@(Host)"></ui-component>
+            </div>
+            <div class="col-md-3 m">
+              <label class="ui-input-label">Port</label>
+              <ui-component name="input" path="?.port" config="required:1;type:number;placeholder:@(Port)"></ui-component>
+            </div>
+            <div class="col-md-6 m">
+              <label class="ui-input-label">User</label>
+              <ui-component name="input" path="?.user" config="required:1;placeholder:@(User)"></ui-component>
+            </div>
+            <div class="col-md-6 m">
+              <label class="ui-input-label">Password</label>
+              <ui-component name="input" path="?.pass" config="required:1;placeholder:@(Password)"></ui-component>
+            </div>
+            <div class="col-md-6 m">
+              <ui-component name="input" path="?.secure" config="type:checkbox">use TLS</ui-component>
+            </div>
+            <div class="col-md-6 m">
+                <ui-component name="input" path="?.hasCode" config="type:checkbox">With Code</ui-component>
+            </div>
+        </div>
+        <ui-bind path="?.hasCode" config="show" class="hidden block col-md-12 m">
+            <div class="ui-input-label">Javascript Code:</div>
+            <ui-component name="codemirror" path="?.code" config="type:javascript;height:250;parent:auto;margin:30;tabs:true;trim:true" class="m"></ui-component>
+        </ui-bind>
+    </div>
+</settings>
+
+<script>
+    TOUCH(function(exports, init) {
+        exports.configure = function(config, isInit) {
+            UPD('flow.data');
+        }
+    });
+
+</script>
+
+<style>
+    .CLASS footer { padding: 10px; font-size: 12px; }
+
+    .button-add { height: 24px; font-size: 12px; border: 1px solid #E0E0E0; border-radius: var(--radius); color: #000; background-color: #f0f0f0; margin: 0; padding: 2px 10px; }
+    .button-add:hover { background-color: #F8F8F8; }
+    .button-add:active { background-color: #E0E0E0; }
+
+    .ui-dark .button-add { border-color: #404040; color: #FFF; background-color: #202020; }
+    .ui-dark .button-add:hover { background-color: #303030; }
+    .ui-dark .button-add:active { background-color: #404040; }
+
+    .switch-input-group { clear: both; height: 36px; }
+    .switch-input-group > ui-component:first-child .ui-input-control { border-right: none; border-bottom-right-radius: 0; border-top-right-radius: 0; width: 120px; float: left; background-color: #f0f0f0; }
+    .switch-input-group > ui-component:last-child .ui-input-control { border-bottom-left-radius: 0; border-top-left-radius: 0; float: left; width: calc(100% - 120px); }
+    .switch-input-group.wide > ui-component:first-child .ui-input-control { width: 200px; }
+    .switch-input-group.wide > ui-component:last-child .ui-input-control { width: calc(100% - 200px); }
+    .menus { border: 1px solid #e0e0e0; padding: 8px; border-radius: 3px; }
+    .menu { border: 1px solid #e0e0e0; border-radius: 3px; padding: 8px; margin-bottom:4px; }
+    .menu > .row > .col-md-1 { height: 36px; line-height: 36px; }
+    .switch-help { background-color: #e7e7ff; border-radius: 3px; padding: 4px; }
+    .switch-thead { padding: 8px; margin-bottom:4px; }
+</style>
+
+<body>
+    <header>
+        <i class="ICON"></i>NAME
+        <ui-bind path="CONFIG.hasCode" config="show" class="hidden"><span class="ti ti-code"></span></ui-bind>
+    </header>
+</body>

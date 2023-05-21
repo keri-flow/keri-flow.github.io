@@ -1,0 +1,334 @@
+<script component>
+  exports.name = 'Google Sheet';
+  exports.group = 'Databases';
+  exports.icon = 'ti ti-table-alt';
+  exports.author = 'Badinga Ulrich';
+  exports.version = '2';
+  exports.config = {
+    query: "",
+    connection: "",
+    connectionData: ""
+  };
+  exports.inputs = [{
+    id: 'input',
+    name: 'Input'
+  }];
+  exports.outputs = [{
+    id: 'output',
+    name: 'Output'
+  }];
+  exports.meta = {
+    readonly: true,
+    remove: false
+  };
+  const SharedMemory = REQUIRE('definitions/shared.js'); //_main.exports;
+
+  exports.make = function (instance, config) {
+    const alasql = require('alasql');
+    alasql.options.usedbo = false;  
+    alasql.from = {};  
+    alasql.into = {};  
+    function hasTable(set){
+      var ret =  alasql("show tables").length > 0;
+      status = {
+        ...status,
+        data : ret
+      };
+      instance.status(status);
+      return status.data;
+    }
+    var status = {
+      error : "",
+      data : false
+    }
+    var templates = {};
+    var lastDataUrl = "";
+    function loadData(config) {
+      var opt = {};
+      opt.url = config.connectionData;
+      // opt.limit = 1.6e+7; // Max 16Mb
+      opt.insecure = true;
+      opt.dnscache = true;
+      opt.method = "GET";
+      // opt.type = "html";
+      status = {
+        ...status,
+        message : "Loading..."
+      }
+      instance.status(status);
+      return new Promise(async returnData=>{
+        opt.callback = function (err,{status, body, header}) {
+          if(status != 200){
+            instance.throw("Error loading");
+            return;
+          }
+          
+          const $ = require('cheerio').load(body,{});
+
+          function numberToColumn(n) {
+            const res = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' [n % 26];
+            return n >= 26 ? numberToColumn(Math.floor(n / 26) - 1) + res : res;
+          }
+          var numberOrText = function ($val) {
+            var $hasDecimal = $val.indexOf('.') > -1;
+            var $input = $val.replace(/[ ]/g, '');
+            $number = $input.replace(/,/g, '.');
+            if ($number.indexOf('.') > -1) {
+              var $groups = $number.replace(/,/g, '.').split('.');
+              var $lastGroup = $hasDecimal ? $groups.pop() : "";
+              $number = $groups.join("") + ($hasDecimal ? ('.' + $lastGroup) : "");
+            }
+            var $ret = parseFloat($number);
+            return isNaN($ret) ? $val : $ret;
+          }
+          alasql.databases.alasql.tables = {};
+          $("#sheet-menu li").each((sheet,li) => {
+            var tableSheet = "sheet"+(sheet + 1);
+            var tableName = $(li).text();
+            alasql(`CREATE TABLE IF NOT EXISTS [${tableSheet}] (
+              [row] INT, 
+              [rowNumber] INT, 
+              [col] VARCHAR(10), 
+              [colNumber] INT, 
+              [index] VARCHAR(10), 
+              [value] TEXT, 
+              [raw] TEXT
+            )`);
+            alasql(`CREATE TABLE IF NOT EXISTS [${tableName}] (
+              [row] INT, 
+              [rowNumber] INT, 
+              [col] VARCHAR(10), 
+              [colNumber] INT, 
+              [index] VARCHAR(10), 
+              [value] TEXT, 
+              [raw] TEXT
+            )`);
+            alasql.databases.alasql.tables[tableName].data = alasql.databases.alasql.tables[tableSheet].data;
+            $("#"+$(li).attr("id").split('-')[2]).find("table tr").each((row,tr) => {
+              if(!row) return; // ignore index 0
+              $(tr).find("td,th").each((col, td) => {
+                if(!col) return; // ignore index 0
+                var value = numberOrText($(td).text());
+                alasql.databases.alasql.tables[tableSheet].data.push({
+                  row :  row,
+                  rowNumber: row,
+                  col: numberToColumn(col-1),
+                  colNumber: col,
+                  index: numberToColumn(col-1) + "" + (row),
+                  value,
+                  isNumber : !isNaN(value),
+                  raw: $(td).text()
+                });
+              })
+            })
+          });
+          status = {
+            ...status,
+            data : true
+          };
+          instance.status();
+          returnData();
+        };
+        REQUEST(opt);
+      }).then(e=>{
+        status = {
+          ...status,
+          message : ""
+        }
+        instance.status(status);
+      })
+    }            
+    instance.trigger = async function(){
+      if(status.data){
+        await loadData(config);
+      }
+    }
+    instance.message = async function ($) {
+      var data = $.data ?? $;
+      var session = new SharedMemory($);
+      await session.ready;
+      if (!(session.sessionId && session.reply && typeof session.reply == "function")) {
+        session = SharedMemory.empty;
+        session.data = data;
+      } else {
+        data = session.data;
+      }
+
+      if (!hasTable()) {
+        var message = 'Google Sheet connection not configured';
+        instance.throw(message);
+        if(typeof data != "object"){
+          data = {
+            data 
+          }
+        }
+        data.results = {
+          error: {
+            code: -2,
+            message
+          },
+          results: null,
+          fields: null
+        }
+        return;
+      }
+      var query = `${templates['QUERY']({
+          data : session.data ?? {},
+          session : session,
+          variables : {...instance.main.variables2,...instance.main.variables,}
+      })}`.trim();
+      if(typeof data != "object"){
+        data = {
+          data 
+        }
+      }
+      if (!query) {
+        var message = 'Query is empty';
+        instance.throw(message);
+        data.results = {
+          error: {
+            code: 0,
+            message
+          },
+          results: null,
+          fields: null
+        }
+        return;
+      }
+      try {
+        data.results = {
+          error : null,
+          results : alasql(query),
+          fields : null
+        };
+      } catch (error) {
+        instance.throw(error.message || error);
+
+        data.results = {
+          error: {
+            code: -1,
+            message : error.message || error
+          },
+          results: null,
+          fields: null
+        }
+      }
+      $.send('output', data);
+    };
+
+    instance.close = function (callback) {
+      alasql.databases.alasql.tables = {};
+      status = {
+        ...status,
+        data : hasTable()
+      };
+      instance.status(status);
+    };
+
+    instance.configure = async function () {
+
+      ["query", "connection"].map(key => {
+        if (config[key]) {
+          templates[key.toUpperCase()] = Tangular.compile(config[key]);
+        } else {
+          templates[key] = () => "";
+        }
+      });
+      config.connectionData = `${templates['CONNECTION']({
+          data : {},
+          session : {},
+          variables : {...instance.main.variables2,...instance.main.variables,}
+      })}`.trim();
+      // same connection, ignore
+      if (!config.connectionData) {
+        return;
+      }
+      if(lastDataUrl != config.connectionData){
+        await loadData(config);
+        lastDataUrl = config.connectionData;
+      }
+
+      status = {
+        ...status,
+        data : hasTable()
+      };
+      instance.status(status);
+      instance.save() // save config
+    };
+    lastDataUrl != config.connectionData;
+    instance.configure();
+
+  };
+</script>
+
+<readme>
+  # Execute SQL Query on ReadOnly public Google Sheet
+
+  ## SQL Query 
+  ```sql
+  -- -- Aviable column
+  -- [row]          -- INT the row number 
+  -- [rowNumber]    -- INT the row number 
+  -- [col]          -- TEXT the colume name in upper case (Ex. A) 
+  -- [colNumber]    -- INT the col number 
+  -- [index]        -- TEXT the cell index in upper case (Ex. A1) 
+  -- [value]        -- TEXT OR DOUBLE the value of the cell
+  -- -- Aviable table
+  -- [sheet{index}] -- The spreadsheet from position (Ex. [sheet1],[sheet3])
+  -- [Sheet Label]  -- The spreadsheet from label (Ex. [Table Number], [Super Sheet 007])
+  -- Nb. Column Table and Names must be between brack ([]) 
+  
+  SELECT [value] FROM [Sheet Label] where [index] = "A1"
+  ```
+
+  ## How access to your google sheet
+
+  - Open your Google Sheet
+  - Click File > Publish to the web…
+  - Click on Link then Select Entire Document and Web page
+  - Copy link
+  - Click Publish
+
+</readme>
+
+<settings>
+  <div class="padding">
+    <div class="row m">
+      <div class="col-md-12">
+        <ui-component name="input" path="?.connection" config="required:1">Connection string</ui-component>
+        <div class="help">e.g.: https://docs.google.com/spreadsheets/d/e/…/pubhtml</div>
+      </div>
+      <div class="col-md-12">
+				<ui-component name="codemirror" path="?.query" config="type:sql;required:true;height:300" class="m">SQL Query</ui-component>
+			</div>
+    </div>
+  </div>
+</settings>
+
+<style>
+  .CLASS footer {
+    padding: 10px;
+    font-size: 12px;
+  }
+</style>
+
+<script>
+
+</script>
+
+<body>
+  <header>
+    <i class="ICON"></i>NAME
+  </header>
+  <footer>
+    <ui-bind path="STATUS" config="template" style="flex:1;">
+      {{ if value?.message }}
+        <span class="title">{{value.message}}</span><br>
+      {{else}}
+        {{ if value?.data }}
+          <button class="exec button" data-exec="FUNC.trigger">Reload</button>
+        {{ fi }}
+      {{ fi }}
+    </ui-bind>
+  </footer>
+</body>
