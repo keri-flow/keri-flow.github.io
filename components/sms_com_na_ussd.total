@@ -17,7 +17,7 @@
     exports.name = 'Namibia USSD';
     exports.icon = 'ti ti-mobile';
     exports.author = 'Oshimin Labs';
-    exports.version = '2';
+    exports.version = '3';
     exports.group = 'Connector';
     exports.config = {
         url: '',
@@ -446,7 +446,7 @@ This component registers an HTTP Route for USSD services and sends request data 
     TOUCH(function (exports, reInit) {
 
         var name = exports.name + ' --> ' + exports.id;
-        var url;
+        var url = "";
 
         exports.settings = function (meta) {
 
@@ -486,7 +486,7 @@ This component registers an HTTP Route for USSD services and sends request data 
                 var serviceCode;
                 FUNC.ussd_simulator({
                     title : "Namibia USSD",
-                    endpoint : CONFIG.proxypath+ CONFIG.url,
+                    endpoint : url,
                     reqFormater : (data, received)=>{
                         if(received){
                             var xmlDoc = new DOMParser().parseFromString(data,"text/xml");
