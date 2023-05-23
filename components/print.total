@@ -9,6 +9,7 @@
 	exports.inputs = [{ id: 'input', name: 'Input' }];
 	exports.meta = {readonly: true, remove: false};
 	exports.make = function(instance, config) {
+    const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
 
 		function serializer(key, value) {
 			return value && value.type === 'Buffer' && value.data ? ('<Buffer ' + value.data.splice(0, 10).map(n => n.toString(16).padLeft(2, '0')).join('') + '...') : value;
@@ -16,7 +17,7 @@
 
 		instance.message = function($) {
 
-			var data = $.data;
+			var data = SharedMemory.extractData($);
 
 			if (config.data !== false) {
 				if (data instanceof Buffer)
@@ -41,9 +42,9 @@
 
 			if (config.data) {
 				if (output)
-					output.data = $.data;
+					output.data = data;
 				else
-					output = $.data;
+					output = data;
 			}
 
 			if (output) {

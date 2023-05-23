@@ -8,6 +8,7 @@
 	exports.author = 'Total.js';
 	exports.config = { repo: false, data: true, watch: [] };
 	exports.meta = { singleton: true, remove : false, readonly: true};
+  const SharedMemory = REQUIRE('definitions/shared.js');
 
 	exports.make = function(instance, config) {
 
@@ -22,7 +23,7 @@
 			if (filter && !filter[$.fromid])
 				return;
 
-			var data = $.data;
+			var data = SharedMemory.extractData($);
 
 			if (config.data !== false) {
 				if (data instanceof Buffer)
@@ -47,9 +48,9 @@
 
 			if (config.data) {
 				if (output)
-					output.data = $.data;
+					output.data = data;
 				else
-					output = $.data;
+					output = data;
 			}
 
 			NOW = new Date();

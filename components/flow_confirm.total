@@ -97,7 +97,7 @@ return "My new message";
 
         instance.configure = function() {
             if(config.code.trim())
-                init = new Function("data, session , variables",`return (async ()=>{;\n${config.code};\n})();`);
+                init = SharedMemory.createFunction("data, session , variables",`return (async ()=>{;\n${config.code};\n})();`);
             else
                 init = ()=>{};
             ['message','confirmText','yesValue','yesText','noValue','noText'].forEach(key=>{

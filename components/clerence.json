@@ -7,7 +7,7 @@
     "url": "https://keri-flow.github.io/components/sms_com_na_ussd.total",
     "author": "Oshimin Labs",
     "icon": "ti ti-mobile",
-    "version": "2",
+    "version": "3",
     "readme": "This component registers an HTTP Route for USSD services and sends request data next. It stores `controller` instance in the `message.refs.controller` property. You must respond to the REST response component.\n\n&lt; __IMPORTANT__:<br>The component works only with a defined Proxy endpoint in the Flow settings.\n&lt; __URL__:<br>The URL must be relative to the defined Proxy endpoint. So if the endpoint is `/users/` and the desired address is `http://example.com/users/find` then the value must be `/find`"
   }
 ]

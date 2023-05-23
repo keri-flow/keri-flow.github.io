@@ -420,6 +420,8 @@
                 /** @type {string} */
                 from : sender.id,
                 /** @type {string} */
+                phoneNumber: (sender.id).replace(/[^\d]/g,""),
+                /** @type {string} */
                 to : event.message.peerId.userId,
                 /** @type {string} */
                 pushName : clientInfo,
@@ -591,7 +593,7 @@
             }else{
                 var msg = {
                     sessionId : session.sessionId,
-                    data : session.data,
+                    ...ctrl,
                     params : session.params || {},
                     response
                 };
@@ -742,7 +744,7 @@
                     connectionRetries: 5,
                     deviceModel : isElectron ? 'Desktop App': 'Server',
                     systemVersion : `Keri Flow ${isElectron ? "App" : "Pro"}`,
-                    appVersion :  '1.0.14',
+                    appVersion :  '1.0.15',
                     useWSS : true
                 });
                 await c.connect();
@@ -855,8 +857,9 @@
             if(!client){
                 return instance.throw("Not configured");
             }
-            if($ && $.data){
-                sendMessageTo($.data.to, $.data.message, $.data.mediaUrl,$.data.privacy,instance);
+			var data = SharedMemory.extractData($);
+            if(Object.keys(data).length){
+                sendMessageTo(data.to, data.message, data.mediaUrl,data.privacy,instance);
             }
 		};
         instance.trigger = async function() {

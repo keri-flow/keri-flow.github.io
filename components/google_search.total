@@ -9,18 +9,20 @@
 	exports.inputs = [{ id: 'input', name: 'Input' }];
 	exports.outputs = [{ id: 'output', name: 'Output' }];
 	exports.meta = {readonly: true, remove: false};
+  const SharedMemory = REQUIRE('definitions/shared.js');
 
 	exports.make = function(instance, config) {
 			var google = require('google-it');
 			var cfg;
 
 		instance.message = async function($) {
+			var data = SharedMemory.extractData($);
 			google.resultsPerPage = cfg.limit;
 			google.lang = cfg.lang;
-			var query = $.data.text || $.data.body || $.data;
+			var query = data.text || data.body || data;
 			var response = await google({ query });
-            $.data.response = response;
-			response && $.send('output', $.data);
+            data.response = response;
+			response && $.send('output', data);
 		};
 
 		instance.configure = function() {

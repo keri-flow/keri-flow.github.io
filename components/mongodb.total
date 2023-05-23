@@ -28,7 +28,7 @@
     var templates = {}
 
 		instance.message = async function($) {
-			var data = $.data ?? {};
+			var data = SharedMemory.extractData($);
       var session = new SharedMemory($);
       await session.ready;
       if(!(session.sessionId && session.reply && typeof session.reply == "function")){
@@ -109,7 +109,7 @@
 
 			var connection = config.connectionData;
 
-			fn = new Function('client', 'data','session','variables', `return (async (callback)=>{;\n${config.fn}\n;}).call();`);
+			fn = SharedMemory.createFunction('client', 'data','session','variables', `return (async (callback)=>{;\n${config.fn}\n;}).call();`);
 
 			if (config.string)
 				connection = config.string;

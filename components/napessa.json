@@ -1,0 +1,13 @@
+[
+  {
+    "id": "cinetpay_transfert.total",
+    "group": "Payments",
+    "groupID": "payments",
+    "name": "CinetPay Transfert",
+    "url": "https://keri-flow.github.io/components/cinetpay_transfert.total",
+    "author": "Badinga Ulrich",
+    "icon": "ti ti-coins-euro",
+    "version": "4",
+    "readme": "The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa."
+  }
+]

@@ -232,7 +232,7 @@
 
         instance.configure = function() {
             if(config.code.trim())
-                init = new Function("data, session , variables, send, stop, ask",`return (async ()=>{;\n${config.code};\n})();`);
+                init = SharedMemory.createFunction("data, session , variables, send, stop, ask",`return (async ()=>{;\n${config.code};\n})();`);
             else
                 init = ()=>{};
             var type = types[config.type] ??  'TEXT';

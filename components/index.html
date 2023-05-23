@@ -155,8 +155,6 @@
                     
                     <a href="#" class="lui-subtitle" data-href=".sorting-services"> Services </a>
                     
-                    <a href="#" class="lui-subtitle" data-href=".sorting-payments"> Payments </a>
-                    
                     <a href="#" class="lui-subtitle" data-href=".sorting-flow"> Flow </a>
                     
                     <a href="#" class="lui-subtitle" data-href=".sorting-debug"> Debug </a>
@@ -164,6 +162,8 @@
                     <a href="#" class="lui-subtitle" data-href=".sorting-triggers"> Triggers </a>
                     
                     <a href="#" class="lui-subtitle" data-href=".sorting-databases"> Databases </a>
+                    
+                    <a href="#" class="lui-subtitle" data-href=".sorting-payments"> Payments </a>
                     
                   </div>
                   <div class="works-items works-masonry-items row">
@@ -298,21 +298,6 @@ text : 'transcipted text'
                       </div>
                     </div>
                     
-                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-payments ">
-                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                        <div class="desc">
-                          <span class="category"> Payments </span>
-                          <h5 class="name">
-                            CinetPay Transfert
-                          </h5>
-                          <div class="text">
-                            <p>The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa.</p>
-                          </div>
-                        </div>
-                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
-                      </div>
-                    </div>
-                    
                     <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-flow ">
                       <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
                         <div class="desc">
@@ -421,21 +406,6 @@ Expressions example:</p>
                           </h5>
                           <div class="text">
                             <p>The component delays processing of a message.</p>
-                          </div>
-                        </div>
-                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
-                      </div>
-                    </div>
-                    
-                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-services ">
-                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                        <div class="desc">
-                          <span class="category"> Services </span>
-                          <h5 class="name">
-                            Email
-                          </h5>
-                          <div class="text">
-                            <h1 id="readme">readme</h1>
                           </div>
                         </div>
                         <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
@@ -567,34 +537,6 @@ The dynamic part must be enclosed in braces <code>{</code> and <code>}</code>.</
                       </div>
                     </div>
                     
-                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-services ">
-                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                        <div class="desc">
-                          <span class="category"> Services </span>
-                          <h5 class="name">
-                            Google Search
-                          </h5>
-                          <div class="text">
-                            <p>This component can google any keyword you want.</p>
-<p><strong>Configuration</strong></p>
-<ul>
-<li><code>Language (optional)</code> : Search language;</li>
-<li><code>Limit (optional)</code> : Limit number of results.</li>
-</ul>
-<p><strong>Input</strong></p>
-<ul>
-<li><code>Object</code> | String : input expects <code>data: String</code> or <code>data.text: String</code> as search keywords.</li>
-</ul>
-<p><strong>Output</strong></p>
-<ul>
-<li><code>Array</code> of found results:</li>
-</ul>
-                          </div>
-                        </div>
-                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
-                      </div>
-                    </div>
-                    
                     <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-flow ">
                       <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
                         <div class="desc">
@@ -640,66 +582,6 @@ The dynamic part must be enclosed in braces <code>{</code> and <code>}</code>.</
                       </div>
                     </div>
                     
-                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-databases ">
-                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                        <div class="desc">
-                          <span class="category"> Databases </span>
-                          <h5 class="name">
-                            MongoDB
-                          </h5>
-                          <div class="text">
-                            <h2 id="queryeditor">Query editor</h2>
-<pre><code class="js language-js">// db = client.db("db-name"); database instance
-// collection = use("db-name").collection('collection-name'); collection instance
-// data; data from the incomming object
-// session; session from connector (can be empty)
-// variables; variables object
-var myCol = client.db('testDb').collection('players');
-const cursor = myColl.find({});
-const allValues = await cursor.toArray();
-
-return allValues; // send  allValues to the next component 
-</code></pre>
-<p>(MongoDB Documentation)[https://www.mongodb.com/docs/drivers/node/current/fundamentals/crud/query-document/]</p>
-                          </div>
-                        </div>
-                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
-                      </div>
-                    </div>
-                    
-                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-payments ">
-                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                        <div class="desc">
-                          <span class="category"> Payments </span>
-                          <h5 class="name">
-                            MyPayga
-                          </h5>
-                          <div class="text">
-                            <p>The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa.</p>
-                          </div>
-                        </div>
-                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
-                      </div>
-                    </div>
-                    
-                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-databases ">
-                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                        <div class="desc">
-                          <span class="category"> Databases </span>
-                          <h5 class="name">
-                            MySQL
-                          </h5>
-                          <div class="text">
-                            <p>Execute MySQL Query</p>
-<h2 id="mysqlquery">MySQL Query</h2>
-<pre><code class="sql language-sql">SELECT * FROM tblname
-</code></pre>
-                          </div>
-                        </div>
-                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
-                      </div>
-                    </div>
-                    
                     <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-triggers ">
                       <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
                         <div class="desc">
@@ -726,31 +608,6 @@ return allValues; // send  allValues to the next component
                       </div>
                     </div>
                     
-                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-services ">
-                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                        <div class="desc">
-                          <span class="category"> Services </span>
-                          <h5 class="name">
-                            OpenWeather
-                          </h5>
-                          <div class="text">
-                            <p>This component can retieve weather data from <a href="https://openweathermap.org/api/">OpenWheatherMap</a>;</p>
-<p><strong>Input</strong></p>
-<pre><code class="js language-js">    {
-        query: {String},             // Optional, City name, Country code, State code e.g: London, Ouagadougou, sk
-        lon: {String},           // Optional, Longitude
-        lat: {String},           // Optional, Latitude
-        lang: {String},           // Optional, Output language e.g: `en`, `de`, `sk`, `fr` etc...
-        units: {String},         // Optional, standard, metric, imperial
-        date: {String},         // Optional,  Timestamp (Unix time, UTC time zone), e.g. date=1586468027.
-    }
-</code></pre>
-                          </div>
-                        </div>
-                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
-                      </div>
-                    </div>
-                    
                     <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-debug ">
                       <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
                         <div class="desc">
@@ -760,21 +617,6 @@ return allValues; // send  allValues to the next component
                           </h5>
                           <div class="text">
                             <p>The component prints incoming data in a JSON format.</p>
-                          </div>
-                        </div>
-                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
-                      </div>
-                    </div>
-                    
-                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-payments ">
-                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                        <div class="desc">
-                          <span class="category"> Payments </span>
-                          <h5 class="name">
-                            Pvit
-                          </h5>
-                          <div class="text">
-                            <p>The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa.</p>
                           </div>
                         </div>
                         <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
@@ -951,6 +793,149 @@ data.label = session.menus.home.label;
 <li>Double click on component to open configurations</li>
 <li>Choose the keyword added previously</li>
 </ol>
+                          </div>
+                        </div>
+                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
+                      </div>
+                    </div>
+                    
+                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-services ">
+                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
+                        <div class="desc">
+                          <span class="category"> Services </span>
+                          <h5 class="name">
+                            Email
+                          </h5>
+                          <div class="text">
+                            <h1 id="readme">readme</h1>
+                          </div>
+                        </div>
+                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
+                      </div>
+                    </div>
+                    
+                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-services ">
+                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
+                        <div class="desc">
+                          <span class="category"> Services </span>
+                          <h5 class="name">
+                            Google Search
+                          </h5>
+                          <div class="text">
+                            <p>This component can google any keyword you want.</p>
+<p><strong>Configuration</strong></p>
+<ul>
+<li><code>Language (optional)</code> : Search language;</li>
+<li><code>Limit (optional)</code> : Limit number of results.</li>
+</ul>
+<p><strong>Input</strong></p>
+<ul>
+<li><code>Object</code> | String : input expects <code>data: String</code> or <code>data.text: String</code> as search keywords.</li>
+</ul>
+<p><strong>Output</strong></p>
+<ul>
+<li><code>Array</code> of found results:</li>
+</ul>
+                          </div>
+                        </div>
+                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
+                      </div>
+                    </div>
+                    
+                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-databases ">
+                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
+                        <div class="desc">
+                          <span class="category"> Databases </span>
+                          <h5 class="name">
+                            MongoDB
+                          </h5>
+                          <div class="text">
+                            <h2 id="queryeditor">Query editor</h2>
+<pre><code class="js language-js">// db = client.db("db-name"); database instance
+// collection = use("db-name").collection('collection-name'); collection instance
+// data; data from the incomming object
+// session; session from connector (can be empty)
+// variables; variables object
+var myCol = client.db('testDb').collection('players');
+const cursor = myColl.find({});
+const allValues = await cursor.toArray();
+
+return allValues; // send  allValues to the next component 
+</code></pre>
+<p>(MongoDB Documentation)[https://www.mongodb.com/docs/drivers/node/current/fundamentals/crud/query-document/]</p>
+                          </div>
+                        </div>
+                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
+                      </div>
+                    </div>
+                    
+                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-payments ">
+                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
+                        <div class="desc">
+                          <span class="category"> Payments </span>
+                          <h5 class="name">
+                            MyPayga
+                          </h5>
+                          <div class="text">
+                            <p>The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa.</p>
+                          </div>
+                        </div>
+                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
+                      </div>
+                    </div>
+                    
+                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-databases ">
+                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
+                        <div class="desc">
+                          <span class="category"> Databases </span>
+                          <h5 class="name">
+                            MySQL
+                          </h5>
+                          <div class="text">
+                            <p>Execute MySQL Query</p>
+<h2 id="mysqlquery">MySQL Query</h2>
+<pre><code class="sql language-sql">SELECT * FROM tblname
+</code></pre>
+                          </div>
+                        </div>
+                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
+                      </div>
+                    </div>
+                    
+                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-services ">
+                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
+                        <div class="desc">
+                          <span class="category"> Services </span>
+                          <h5 class="name">
+                            OpenWeather
+                          </h5>
+                          <div class="text">
+                            <p>This component can retieve weather data from <a href="https://openweathermap.org/api/">OpenWheatherMap</a>;</p>
+<p><strong>Input</strong></p>
+<pre><code class="js language-js">    {
+        query: {String},             // Optional, City name, Country code, State code e.g: London, Ouagadougou, sk
+        lon: {String},           // Optional, Longitude
+        lat: {String},           // Optional, Latitude
+        lang: {String},           // Optional, Output language e.g: `en`, `de`, `sk`, `fr` etc...
+        units: {String},         // Optional, standard, metric, imperial
+        date: {String},         // Optional,  Timestamp (Unix time, UTC time zone), e.g. date=1586468027.
+    }
+</code></pre>
+                          </div>
+                        </div>
+                        <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>
+                      </div>
+                    </div>
+                    
+                    <div class="works-col col-xs-12 col-sm-12 col-md-12 col-lg-12 sorting-branding sorting-payments ">
+                      <div class="works-item scrolla-element-anim-1 scroll-animate" data-animate="active">
+                        <div class="desc">
+                          <span class="category"> Payments </span>
+                          <h5 class="name">
+                            Pvit
+                          </h5>
+                          <div class="text">
+                            <p>The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa.</p>
                           </div>
                         </div>
                         <div class="bg-img" style="background-image: url(../assets/images/pat-2.png);"></div>

@@ -23,7 +23,7 @@
 		var MYSQL;
 
 		instance.message = async function($) {
-      var data = $.data ?? $;
+      var data = SharedMemory.extractData($);
       var session = new SharedMemory($);
       await session.ready;
       if(!(session.sessionId && session.reply && typeof session.reply == "function")){

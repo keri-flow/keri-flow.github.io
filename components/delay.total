@@ -2,7 +2,7 @@
 
 	exports.name = 'Delay';
 	exports.group = 'Triggers';
-	exports.version = '3';
+	exports.version = '4';
 	exports.icon = 'ti ti-hourglass';
 	exports.author = 'Total.js';
 	exports.config = { delay: 1000 };
@@ -38,7 +38,7 @@
 		};
 
 		instance.message = async function($) {
-      var data = $.data || $;
+      var data = SharedMemory.extractData($);
 			var session = new SharedMemory($);
       await session.ready;
 			if(!(session.sessionId && session.reply && typeof session.reply == "function")){

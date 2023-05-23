@@ -4,7 +4,7 @@
     exports.name = 'Catalog';
     exports.group = 'Flow';
     exports.icon = 'ti ti-bags-shopping';
-    exports.version = '1';
+    exports.version = '2';
     exports.config = {
         name: "catalog" ,
         items: [],
@@ -29,7 +29,8 @@
             "CURRENCY" : ""
         } 
         instance.message = async function($) {
-            var order = $?.order?.products ? $?.order : ($?.data?.order?.products ? $?.data?.order : undefined);
+            var $data = SharedMemory.extractData($);
+            var order = $data?.order?.products ? $data?.order : ($data?.data?.order?.products ? $data?.data?.order : undefined);
             if(!order){
                 return instance.throw("Invalid order");
             }
@@ -125,7 +126,7 @@
 
         instance.configure = function() {
             if(config.code.trim()){
-                init = new Function("order, data, session , variables",`return (async ()=>{;\n${config.code};\n})();`);
+                init = SharedMemory.createFunction("order, data, session , variables",`return (async ()=>{;\n${config.code};\n})();`);
             }else
                 init = null;
             if(config.currency){

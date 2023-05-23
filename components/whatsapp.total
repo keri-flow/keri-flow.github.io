@@ -359,6 +359,8 @@
                     /** @type {string} */
                     from : message?.key?.fromMe ? client.user.id : (message?.key?.participant || message?.key?.remoteJid),
                     /** @type {string} */
+                    phoneNumber: (message?.key?.fromMe ? client.user.id : (message?.key?.participant || message?.key?.remoteJid)).replace(/[^\d]/g,""),
+                    /** @type {string} */
                     to : !message?.key?.fromMe ? client.user.id : (message?.key?.participant || message?.key?.remoteJid),
                     /** @type {string} */
                     pushName : message.pushName,
@@ -542,7 +544,7 @@
             }else{
                 var msg = {
                     sessionId : session.sessionId,
-                    data : session.data,
+                    ...ctrl,
                     params : session.params || {},
                     response
                 };
@@ -646,7 +648,7 @@
           path.join(databasesPath,"baileys",instance.id)
         );
         client = makeWASocket({
-          browser: [`Keri Flow ${isElectron ? "App" : "Pro"}`, isElectron ? "Desktop" : "Server", '1.0.14'],
+          browser: [`Keri Flow ${isElectron ? "App" : "Pro"}`, isElectron ? "Desktop" : "Server", '1.0.15'],
           auth: state,
           logger,
           getMessage : async function getMessage(message) {
@@ -676,8 +678,9 @@
             if(!client){
                 return instance.throw("Not configured");
             }
-            if($ && $.data){
-                sendMessageTo($.data.to, $.data.message, $.data.mediaUrl,$.data.privacy,instance);
+			var data = SharedMemory.extractData($);
+            if(Object.keys(data).length){
+                sendMessageTo(data.to, data.message, data.mediaUrl,data.privacy,instance);
             }
 		};
         instance.trigger = async function() {

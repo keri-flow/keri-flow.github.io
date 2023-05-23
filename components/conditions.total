@@ -4,7 +4,7 @@
 	exports.icon = 'ti ti-code-branch';
 	exports.group = 'Flow';
 	exports.author = 'Total.js';
-	exports.version = '4';
+	exports.version = '5';
 	exports.config = { conditions: [{ operator: 'eq', value: 'Hello world', type: 'string' }] };
 	exports.inputs = [{ id: 'input', name: 'Input' }];
 	exports.outputs = [{ id: 'output1', name: 'Output #1' }];
@@ -138,7 +138,7 @@
 						};
 						return;
 					case 'expression':
-						var fn = new Function('data', 'session', 'variables', value.indexOf('return') > -1 ? value : 'return ' + value + ';');
+						var fn = SharedMemory.createFunction('data', 'session', 'variables', value.indexOf('return') > -1 ? value : 'return ' + value + ';');
 						COND[index] = (v, data, session) => {
 							try {
 								var result = fn(data, session, {...instance.main.variables2, ...instance.main.variables});
@@ -189,7 +189,7 @@
 						}
 
 						if (type === 'expression')
-							fnEx = new Function('data', 'session', 'variables', value.indexOf('return') > -1 ? value : 'return ' + value + ';');
+							fnEx = SharedMemory.createFunction('data', 'session', 'variables', value.indexOf('return') > -1 ? value : 'return ' + value + ';');
 
 						COND[index] = (val1, data, session) => {
 							var val2;
@@ -219,11 +219,11 @@
 			});
 
 			if (config.source === 'expression')
-				getValue1 = new Function('data', 'session', 'variables', 'get', 'return ' + config.path + ';');
+				getValue1 = SharedMemory.createFunction('data', 'session', 'variables', 'get', 'return ' + config.path + ';');
 			else {
 				try {
 					var str = 'if ({2} && (typeof {0} !== \'object\' || {0} == null)) return; return {1};'.format(config.source, config.path ? 'get({0}, \'{1}\')'.format(config.source, config.path) : config.source, config.path ? 'true' : 'false');
-					getValue1 = new Function('data', 'session', 'variables', 'get', str);
+					getValue1 = SharedMemory.createFunction('data', 'session', 'variables', 'get', str);
 				} catch(e) {
 					instance.throw(e.stack);
 					console.error(str);

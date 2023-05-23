@@ -37,19 +37,19 @@
 	exports.make = function(instance, config) {
 
 		instance.message = async function($) {
-            var session = new SharedMemory($);
-            await session.ready;
+			var session = new SharedMemory($);
+			await session.ready;
 			await session.setItem("forceCloseMessage", config.forceClose);
 			await session.setItem("softCloseMessage" ,config.bye);
 			if(!session.welcome && session.sayWelcome){
 				await session.sayWelcome(config.welcome);
 				await new Promise(ok=>setTimeout(ok,500)); // wait for 0.5s
 			}
-            if(session.sessionId){
-                instance.send('output', $);
-            }else{
-                instance.throw("Invalid message");
-            }
+			if(session.sessionId){
+					instance.send('output', session.data);
+			}else{
+					instance.throw("Invalid message");
+			}
 		};
 
 		instance.configure = function() {

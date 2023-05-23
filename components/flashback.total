@@ -2,7 +2,7 @@
 
 	exports.name = 'Flashback';
 	exports.group = 'Triggers';
-	exports.version = '4';
+	exports.version = '5';
 	exports.icon = 'ti ti-history';
 	exports.author = 'Peter Širka & Jakub Urban';
 	exports.inputs = [{ id: 'input', name: 'Input' }];
@@ -21,7 +21,7 @@
 		}
 
 		instance.message = async function($) {
-      var data = $.data || $;
+      var data = SharedMemory.extractData($);
 			var session = new SharedMemory($);
       await session.ready;
 			if(!(session.sessionId && session.reply && typeof session.reply == "function")){
@@ -34,7 +34,7 @@
 			status.data = CLONE(data);
 			status.repo = CLONE($.repo||{});
 
-			$.send('output');
+			$.send('output', data);
 
 			if (timeout) {
 				clearTimeout(timeout);

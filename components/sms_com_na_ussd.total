@@ -13,7 +13,7 @@
 
     const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
 
-    exports.private = true;
+    exports.private = 'clerence';
     exports.name = 'Namibia USSD';
     exports.icon = 'ti ti-mobile';
     exports.author = 'Oshimin Labs';
@@ -94,7 +94,7 @@
                     var ussd;
 
                     function replyBuilder(text) {
-                        console.log("CONVERT", text);
+                        // console.log("CONVERT", text);
                         text = `
 <?xml version="1.0" encoding="UTF-8"?>
 <ussd>
@@ -113,7 +113,7 @@
                     try {
                         //parse xml
                         ussd = ctrl.req.bodydata.toString("utf8").parseXML();
-                        console.log(ussd);
+                        // console.log(ussd);
                         // format xml to right object
                         // 0|ussd  | {
                         // 0|ussd  |   'ussd.msisdn': 'M',
@@ -144,6 +144,8 @@
                                 /** @type {string} */
                                 from: ussd.msisdn,
                                 /** @type {string} */
+                                phoneNumber: ussd.msisdn.replace(/[^\d]/g,""),
+                                /** @type {string} */
                                 pushName: ussd.msisdn,
                                 /** @type {string | null} */
                                 group: null,
@@ -164,7 +166,7 @@
                         // console.log("POST ROUTE " + config.url, data);
                         var session = new SharedMemory({
                             sessionId: `${data.sessionId}`,
-                            data
+                            ...data
                         }, data);
                         await session.ready;
                         if(data.reqType == 3 || data.reqType == 4 || data.reqType == 10){
@@ -201,7 +203,7 @@
                         }) { // normal ask
                             return new Promise(async (okFn, errFn) => {
                                 await session.setItem("input", async function (response) {
-                                    console.log(response);
+                                    // console.log(response);
                                     await session.setItem("input", null);  // clear answer handler
                                     okFn(`${response}`.trim());
                                 });
@@ -248,21 +250,22 @@
 
                         var instanceToSendTheAnswer = session.input ?? null, response = null;
                         if (instanceToSendTheAnswer && typeof instanceToSendTheAnswer == "function") {
-                            console.log("REPLY", data);
+                            // console.log("REPLY", data);
                             await instanceToSendTheAnswer(data.body);
                         } else {
                             var msg = {
                                 sessionId: session.sessionId,
-                                data: session.data,
+                                ...data,
                                 response
                             };
                             var output;
-                            console.log("SESSION TO",session.to);
+                            // console.log("ROUTE out", msg);
+                            // console.log("SESSION TO",session.to);
                             config.outputs.some(id => {
                                 var target = instance.main.meta.flow[id];
-                            console.log("TEST TARGET",!target , !target.config.name , [session.isUser , !target.config.user]);
+                            // console.log("TEST TARGET",!target , !target.config.name , [session.isUser , !target.config.user]);
                                 if (!target || !target.config.name || (session.isUser && !target.config.user)) return false;
-                                console.log("TEST TARGET",!target , !target.config.name , [session.isUser , !target.config.user]);
+                                // console.log("TEST TARGET",!target , !target.config.name , [session.isUser , !target.config.user]);
                                 var ret = target.config.name.trim().toUpperCase() == session.to.trim().toUpperCase();
                                 if (ret) {
                                     output = target;
@@ -300,6 +303,7 @@
                                         }
                                     }
                                     if (sessions > 0) {
+                                        // console.log("ROUTE out", msg);
                                         output.message(instance.newmessage(msg));
                                     } else
                                         instance.throw("No session aviable, please recharge");
@@ -312,7 +316,7 @@
                         }
 
                     } catch (error) {
-                        console.log("ERROR",error);
+                        console.error("ERROR",error);
                         return ctrl.error("Processing error");
                     }
                 }, flags, 5120);
@@ -493,7 +497,7 @@ This component registers an HTTP Route for USSD services and sends request data 
                             return (xmlDoc.querySelector("type").innerHTML == 2 ? "CON" : "END")+" "+xmlDoc.querySelector("msg").innerHTML;
                         };
                         serviceCode = serviceCode ?? data.text;
-                        console.log(data);
+                        // console.log(data);
                         return {
                             data: `
     <?xml version="1.0" encoding="UTF-8"?>

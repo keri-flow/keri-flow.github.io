@@ -8,12 +8,14 @@
 	exports.config = { type: 'current', apikey: '', mode: 'json', time: 'hourly' };
 	exports.inputs = [{ id: 'input', name: 'Input' }];
 	exports.outputs = [{ id: 'output', name: 'Output' }, { id: 'error', name: 'Error' }];
-    exports.meta = {readonly: true, remove: false};
+	exports.meta = {readonly: true, remove: false};
+	const SharedMemory = REQUIRE('definitions/shared.js');
+
 	exports.make = function(instance, config) {
 		var URL = 'https://api.openweathermap.org/data/2.5';
 		var cfg;
 		instance.message = function($) {
-			var data = $.data;
+			var data = SharedMemory.extractData($);
 
 			if (!data) {
 				$.send('error', 'Invalid or empty input');

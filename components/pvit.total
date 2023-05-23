@@ -140,10 +140,10 @@
 
             var send = async (err, doc=null)=>{
                 await session.setItem("input",null);  // clear answer handler
-                $.data.payment = {
+                session.data.payment = {
                     err,doc
                 };
-                $.send(err ? 'fail' : 'success');
+                $.send(err ? 'fail' : 'success', session.data);
             }
 			var opt = {};
 

@@ -8,6 +8,7 @@
 	exports.config = { random: true, type: 'string', data: '', interval: 5000 };
 	exports.outputs = [{ id: 'output', name: 'Output' }];
   exports.meta = {readonly: true, remove: false};
+  const SharedMemory = REQUIRE('definitions/shared.js');//_main.exports;
 
 	exports.make = function(instance, config) {
 
@@ -33,7 +34,7 @@
 					break;
 				case 'object':
 					try {
-						val = config.random ? {} : (new Function('variables','return (' + config.data+');'))({...instance.main.variables2,...instance.main.variables,});
+						val = config.random ? {} : (SharedMemory.createFunction('variables','return (' + config.data+');'))({...instance.main.variables2,...instance.main.variables,});
 					} catch (e) {
 						instance.throw(e);
 					}

@@ -367,8 +367,8 @@
 
                 opt.body = JSON.stringify(body);
             }catch(e){
-                $.data.payment = null;
-                $.send('fail',"ERROR :: "+(e.stack || e));
+                session.data.payment = null;
+                $.send('fail',"ERROR :: "+(e.stack || e), session.data);
                 return;
             }
 			opt.dnscache = true;
@@ -382,8 +382,8 @@
                 // console.log("CACHE", unique_id,err, success);
                 var send = async (doc)=>{
                     await session.setItem("input",null);  // clear answer handler
-                    $.data.payment = doc; 
-                    $.send(err ? 'fail' : 'success');
+                    session.data.payment = doc; 
+                    $.send(err ? 'fail' : 'success',session.data);
                 }
                 database.one().where('unique_id', unique_id).callback(function(err, doc, meta) {
                     if(err){

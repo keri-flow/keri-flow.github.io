@@ -2,7 +2,7 @@
 
 	exports.name = 'API Request';
 	exports.group = 'Services';
-	exports.version = '4';
+	exports.version = '5';
 	exports.icon = 'ti ti-earth';
 	exports.author = 'Badinga Ulrich';
 	exports.config = { 
@@ -70,7 +70,7 @@
 		};
         instance.configure = function(){
             if(config.hasCode && config.code.trim()){
-                init = new Function("data, session , variables",`return (async ()=>{;\n${config.code};\n})();`);
+                init = SharedMemory.createFunction("data, session , variables",`return (async ()=>{;\n${config.code};\n})();`);
             }else
                 init = (data, session , variables)=>getValueFromPath(config.path, {data,session,variables});
         }
@@ -84,7 +84,7 @@
             await session.ready;
             if(!(session.sessionId && session.reply && typeof session.reply == "function")){
                 session = SharedMemory.empty;
-								session.data = $.data ?? $;
+								session.data = SharedMemory.extractData($);
             }
 			var opt = {};
 
@@ -159,28 +159,28 @@
 			opt.callback = function(err, response) {
 
 				if (err) {
-					$.data = setValueFromPath(config.pathSend,$.data,{ err });
-					$.send('error');
+					session.data = setValueFromPath(config.pathSend,session.data,{ err });
+					$.send('error',session.data);
 					return;
 				}
 
 				if (opt.custom) {
 					response.stream.on('data', data =>{
-						$.data = setValueFromPath(config.pathSend,$.data,{ data });
-						$.send('response')
+						session.data = setValueFromPath(config.pathSend,session.data,{ data });
+						$.send('response',session.data)
 					});
 					return;
 				}
 
 				if (config.send === 'headers') {
-					$.data = setValueFromPath(config.pathSend,$.data,{ status: response.headers });
-					$.send('response');
+					session.data = setValueFromPath(config.pathSend,session.data,{ status: response.headers });
+					$.send('response',session.data);
 					return;
 				}
 
 				if (config.send === 'status') {
-					$.data = setValueFromPath(config.pathSend,$.data,{ status: response.status });
-					$.send('response');
+					session.data = setValueFromPath(config.pathSend,session.data,{ status: response.status });
+					$.send('response',session.data);
 					return;
 				}
 
@@ -213,13 +213,13 @@
 
 				switch (config.send) {
 					case 'all':
-						$.data = setValueFromPath(config.pathSend,$.data,{ headers: response.headers, cookies: response.cookies, status: response.status, host: response.host, body: body });
+						session.data = setValueFromPath(config.pathSend,session.data,{ headers: response.headers, cookies: response.cookies, status: response.status, host: response.host, body: body });
 						break;
 					case 'response':
-						$.data = setValueFromPath(config.pathSend,$.data,{ body: body });
+						session.data = setValueFromPath(config.pathSend,session.data,{ body: body });
 						break;
 				}
-				$.send('response');
+				$.send('response',session.data);
 			};
 
 			REQUEST(opt);

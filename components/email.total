@@ -52,7 +52,7 @@
 
             if(!(session.sessionId && session.reply && typeof session.reply == "function")){
                 session = SharedMemory.empty;
-								session.data = $.data ?? $;
+								session.data = SharedMemory.extractData($);
             }
             // execute init;
             if(config.hasCode){
@@ -96,7 +96,7 @@
 
         instance.configure = function() {
             if(config.code.trim())
-                init = new Function("data, session , variables, sendMail",`return (async ()=>{;\n${config.code};\n})();`);
+                init = SharedMemory.createFunction("data, session , variables, sendMail",`return (async ()=>{;\n${config.code};\n})();`);
             else
                 init = ()=>{};
             ['message','subject','from','to','bcc','cc'].forEach(key=>{

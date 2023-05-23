@@ -16,7 +16,7 @@
     exports.name = 'AfricasTalking USSD';
     exports.icon = 'ti ti-hashtag';
     exports.author = 'Oshimin Labs';
-    exports.version = '2';
+    exports.version = '3';
     exports.group = 'Connector';
     exports.config = {
         url: '',
@@ -197,6 +197,8 @@
                                 /** @type {string} */
                                 from: ctrl.body.phoneNumber,
                                 /** @type {string} */
+                                phoneNumber: ctrl.body.phoneNumber,
+                                /** @type {string} */
                                 pushName: ctrl.body.phoneNumber,
                                 /** @type {string | null} */
                                 group: null,
@@ -218,7 +220,7 @@
 
                         var session = new SharedMemory({
                             sessionId: `${data.sessionId}`,
-                            data
+                            ...data
                         }, data);
                         await session.ready;
 
@@ -289,7 +291,7 @@
                         } else {
                             var msg = {
                                 sessionId: session.sessionId,
-                                data: session.data,
+                                ...data,
                                 response
                             };
                             var output;

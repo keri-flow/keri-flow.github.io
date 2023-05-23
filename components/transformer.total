@@ -16,7 +16,7 @@
 		var fn;
 
 		instance.message = async function($) {
-      var data = $.data || $;
+      var data = SharedMemory.extractData($);
 			var session = new SharedMemory($);
       await session.ready;
 			if(!(session.sessionId && session.reply && typeof session.reply == "function")){
@@ -39,7 +39,7 @@
 		instance.configure = function() {
 			try {
 				if (config.code)
-					fn = new Function('data', 'session', 'variables', config.code + ';return data;');
+					fn = SharedMemory.createFunction('data', 'session', 'variables', config.code + ';return data;');
 				else
 					fn = null;
 			} catch (e) {

@@ -7,7 +7,7 @@
     "url": "https://keri-flow.github.io/components/africatalking_ussd.total",
     "author": "Oshimin Labs",
     "icon": "ti ti-hashtag",
-    "version": "2",
+    "version": "3",
     "readme": "This component registers an HTTP Route for USSD services and sends request data next. It stores `controller` instance in the `message.refs.controller` property. You must respond to the REST response component.\n\n  &lt; __IMPORTANT__:<br>The component works only with a defined Proxy endpoint in the Flow settings.\n  &lt; __URL__:<br>The URL must be relative to the defined Proxy endpoint. So if the endpoint is `/users/` and the desired address is `http://example.com/users/find` then the value must be `/find`"
   },
   {
@@ -18,7 +18,7 @@
     "url": "https://keri-flow.github.io/components/api_request.total",
     "author": "Badinga Ulrich",
     "icon": "ti ti-earth",
-    "version": "4",
+    "version": "5",
     "readme": "The component makes a HTTP request. The response data will be serialized as the payload.\n\n__Response__:\n\n```json\n{\n\tstatus: Number,\n\theaders: { key: value },\n\tcookies: { key: value },\n\thost: String,\n\tbody: String/Object/Buffer\n}\n```"
   },
   {
@@ -33,17 +33,6 @@
     "readme": "This component can talk to ChatGPT.\n\topenai\n\n\t# input\n\n\tInput will depend on selected model\n\n\t- __CPT 3.5 Turbo__\n\t```js\n\n\t// Object\n\t{\n\tmessages : [{ role: 'user', content: 'Text' }]\n\t}\n\n\t// or\n\n\n\t// Array\n\t[{ role: 'assistant', content: 'Text' }]\n\t```\n\n\t- __Whisper__\n\t```js\n\n\t// Object\n\t{\n\tpath : 'path-to-file'\n\t}\n\n\t// or\n\n\n\t// String\n\t'path-to-file'\n\t```\n\n\t- __Other__\n\t```js\n\n\t// Object\n\t{\n\ttext : 'your question'\n\t}\n\n\t// or\n\n\n\t// String\n\t'your question'\n\t```\n\n\n\t# output\n\n\tOutput also depends on selected model\n\t- __CPT 3.5 Turbo__\n\t```js\n\t'Response from assistant'\n\t```\n\n\t- __Whisper__\n\t```js\n\n\t// Object\n\t{\n\ttext : 'transcipted text'\n\t}\n\t```\n\t- __Other__\n\t```js\n\n\t// String\n\t'your question'\n\t```"
   },
   {
-    "id": "cinetpay_transfert.total",
-    "group": "Payments",
-    "groupID": "payments",
-    "name": "CinetPay Transfert",
-    "url": "https://keri-flow.github.io/components/cinetpay_transfert.total",
-    "author": "Badinga Ulrich",
-    "icon": "ti ti-coins-euro",
-    "version": "4",
-    "readme": "The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa."
-  },
-  {
     "id": "conditions.total",
     "group": "Flow",
     "groupID": "flow",
@@ -51,7 +40,7 @@
     "url": "https://keri-flow.github.io/components/conditions.total",
     "author": "Total.js",
     "icon": "ti ti-code-branch",
-    "version": "4",
+    "version": "5",
     "readme": "## Source and Path\nUse the **Source** dropdown to select where to look for the value to use in the conditions check.\nSet a **Path** if the value is not the data itself. It supports dot notation: `position.longitude` or `sensor.0.value` for arrays, it does not support `sensor[0].value`.\n**Expression** supports javascript syntax. Should return a value which will be used in condition check as `data`. Available variables: data, session, variables\n**Expressions example:**\n```js\ndata.value - variables.offset\n```\n\n## Conditions\nEach of the **Conditions** corresponds to an output in the exact same order. First condition -&gt; First output.\n\n**Operator**\nNot all operators work on all data types. For example it is not possible to use `&gt;` or `&lt;` for strings, etc.\n*index of* only works for data of type array or string.\n**Expression operator**\nIn this case the **type** field is ignored and the expression in the **value** field must return `true` or `false`. Available variables: data, session, variables.\nExpressions operator example:\n```js\ndata.value &gt; variables.threshold;\n```\nor with a conditions\n```js\nif (typeof data.value !== 'number') return false; else return data.value &gt; parseInt(variables.threshold);\n```\n\n**Expression type**\nThe expression in the **value** field must return a value which will be used in the given operation. Available variables: data, session, variables.\nExpressions example:\n```js\ndata.value - variables.offset\n```\n\n**Between operator** only works with datatype number and the value must be two comma separated values. e.g.: `2,4` so the condition becomes `val &gt; 2 &amp;&amp; val &lt; 4`"
   },
   {
@@ -96,19 +85,8 @@
     "url": "https://keri-flow.github.io/components/delay.total",
     "author": "Total.js",
     "icon": "ti ti-hourglass",
-    "version": "3",
+    "version": "4",
     "readme": "The component delays processing of a message."
-  },
-  {
-    "id": "email.total",
-    "group": "Services",
-    "groupID": "services",
-    "name": "Email",
-    "url": "https://keri-flow.github.io/components/email.total",
-    "author": "Keri Flow",
-    "icon": "ti ti-at",
-    "version": "1",
-    "readme": "# readme"
   },
   {
     "id": "flashback.total",
@@ -118,7 +96,7 @@
     "url": "https://keri-flow.github.io/components/flashback.total",
     "author": "Peter Širka & Jakub Urban",
     "icon": "ti ti-history",
-    "version": "4",
+    "version": "5",
     "readme": "The component remembers the data for repeating the action."
   },
   {
@@ -129,7 +107,7 @@
     "url": "https://keri-flow.github.io/components/flow_catalog.total",
     "author": "Keri Flow",
     "icon": "ti ti-bags-shopping",
-    "version": "1",
+    "version": "2",
     "readme": "# readme"
   },
   {
@@ -199,17 +177,6 @@
     "readme": "## WhatsApp Keywrord\n\n### Static\n\nThe whatsapp keyword can be juste a word,  or a sentence, eg. `buy`, `delivery`, `location`.\n\n### Dynamic\n\nWhatsApp keyword can be dynamic, so can handle multiple cases, for example: `buy {item}`, `delivery {district}`, `remittance {operator} {customer}`.\nThe dynamic part must be enclosed in braces `{` and `}`."
   },
   {
-    "id": "google_search.total",
-    "group": "Services",
-    "groupID": "services",
-    "name": "Google Search",
-    "url": "https://keri-flow.github.io/components/google_search.total",
-    "author": "Total.js",
-    "icon": "ti ti-google",
-    "version": "1",
-    "readme": "This component can google any keyword you want.\n\n\n__Configuration__\n\n- `Language (optional)` : Search language;\n- `Limit (optional)` : Limit number of results.\n\n__Input__\n\n- `Object` | String : input expects `data: String` or `data.text: String` as search keywords.\n\n\n__Output__\n\n- `Array` of found results:"
-  },
-  {
     "id": "in_out.total",
     "group": "Flow",
     "groupID": "flow",
@@ -243,39 +210,6 @@
     "readme": "The component triggers data into the Flow in every minute."
   },
   {
-    "id": "mongodb.total",
-    "group": "Databases",
-    "groupID": "databases",
-    "name": "MongoDB",
-    "url": "https://keri-flow.github.io/components/mongodb.total",
-    "author": "Martin Smola",
-    "icon": "ti ti-database",
-    "version": "2",
-    "readme": "## Query editor\n```js\n// db = client.db(\"db-name\"); database instance\n// collection = use(\"db-name\").collection('collection-name'); collection instance\n// data; data from the incomming object\n// session; session from connector (can be empty)\n// variables; variables object\nvar myCol = client.db('testDb').collection('players');\nconst cursor = myColl.find({});\nconst allValues = await cursor.toArray();\n\nreturn allValues; // send  allValues to the next component \n```\n\n(MongoDB Documentation)[https://www.mongodb.com/docs/drivers/node/current/fundamentals/crud/query-document/]"
-  },
-  {
-    "id": "mypayga.total",
-    "group": "Payments",
-    "groupID": "payments",
-    "name": "MyPayga",
-    "url": "https://keri-flow.github.io/components/mypayga.total",
-    "author": "Badinga Ulrich",
-    "icon": "ti ti-money-check-alt",
-    "version": "4",
-    "readme": "The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa."
-  },
-  {
-    "id": "mysql.total",
-    "group": "Databases",
-    "groupID": "databases",
-    "name": "MySQL",
-    "url": "https://keri-flow.github.io/components/mysql.total",
-    "author": "Total.js",
-    "icon": "ti ti-database",
-    "version": "2",
-    "readme": "Execute MySQL Query\n\n## MySQL Query \n```sql\nSELECT * FROM tblname\n```"
-  },
-  {
     "id": "notify.total",
     "group": "Triggers",
     "groupID": "triggers",
@@ -287,17 +221,6 @@
     "readme": "This component captures data on the `/notify/` endpoint.\n\n__Output data__:\n\n```js\n{\n\t\"method\": String,\n\t\"query\": Object,\n\t\"body\": Object,\n\t\"headers\": Object,\n\t\"cookies\": Object,\n\t\"url\": String,\n\t\"ip\": String\n}\n```"
   },
   {
-    "id": "openweather.total",
-    "group": "Services",
-    "groupID": "services",
-    "name": "OpenWeather",
-    "url": "https://keri-flow.github.io/components/openweather.total",
-    "author": "Total.js",
-    "icon": "ti ti-weather",
-    "version": "1",
-    "readme": "This component can retieve weather data from [OpenWheatherMap](https://openweathermap.org/api/);\n\n__Input__\n```js\n\t{\n\t\tquery: {String},             // Optional, City name, Country code, State code e.g: London, Ouagadougou, sk\n\t\tlon: {String},           // Optional, Longitude\n\t\tlat: {String},           // Optional, Latitude\n\t\tlang: {String},           // Optional, Output language e.g: `en`, `de`, `sk`, `fr` etc...\n\t\tunits: {String},         // Optional, standard, metric, imperial\n\t\tdate: {String},         // Optional,  Timestamp (Unix time, UTC time zone), e.g. date=1586468027.\n\t}\n```"
-  },
-  {
     "id": "print.total",
     "group": "Debug",
     "groupID": "debug",
@@ -307,17 +230,6 @@
     "icon": "ti ti-print",
     "version": "5",
     "readme": "The component prints incoming data in a JSON format."
-  },
-  {
-    "id": "pvit.total",
-    "group": "Payments",
-    "groupID": "payments",
-    "name": "Pvit",
-    "url": "https://keri-flow.github.io/components/pvit.total",
-    "author": "Badinga Ulrich",
-    "icon": "ti ti-coins",
-    "version": "1",
-    "readme": "The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa."
   },
   {
     "id": "queue.total",
@@ -395,5 +307,82 @@
     "icon": "fab fa-whatsapp",
     "version": "1",
     "readme": "## How Connect Your WhatsApp\n\n1. Open WhatsApp on your phone\n2. Tap on **Menu** &gt; **Settings** &gt; and select **Linked Devices**\n3. Tap on **Link a Device**\n4. Point your phone to the QR code\n\n## How handle message\n1. Add a keyword component\n2. Double click on component to open configurations\n3. Choose the keyword added previously"
+  },
+  {
+    "id": "email.total",
+    "group": "Services",
+    "groupID": "services",
+    "name": "Email",
+    "url": "https://keri-flow.github.io/components/email.total",
+    "author": "Keri Flow",
+    "icon": "ti ti-at",
+    "version": "1",
+    "readme": "# readme"
+  },
+  {
+    "id": "google_search.total",
+    "group": "Services",
+    "groupID": "services",
+    "name": "Google Search",
+    "url": "https://keri-flow.github.io/components/google_search.total",
+    "author": "Total.js",
+    "icon": "ti ti-google",
+    "version": "1",
+    "readme": "This component can google any keyword you want.\n\n\n__Configuration__\n\n- `Language (optional)` : Search language;\n- `Limit (optional)` : Limit number of results.\n\n__Input__\n\n- `Object` | String : input expects `data: String` or `data.text: String` as search keywords.\n\n\n__Output__\n\n- `Array` of found results:"
+  },
+  {
+    "id": "mongodb.total",
+    "group": "Databases",
+    "groupID": "databases",
+    "name": "MongoDB",
+    "url": "https://keri-flow.github.io/components/mongodb.total",
+    "author": "Martin Smola",
+    "icon": "ti ti-database",
+    "version": "2",
+    "readme": "## Query editor\n```js\n// db = client.db(\"db-name\"); database instance\n// collection = use(\"db-name\").collection('collection-name'); collection instance\n// data; data from the incomming object\n// session; session from connector (can be empty)\n// variables; variables object\nvar myCol = client.db('testDb').collection('players');\nconst cursor = myColl.find({});\nconst allValues = await cursor.toArray();\n\nreturn allValues; // send  allValues to the next component \n```\n\n(MongoDB Documentation)[https://www.mongodb.com/docs/drivers/node/current/fundamentals/crud/query-document/]"
+  },
+  {
+    "id": "mypayga.total",
+    "group": "Payments",
+    "groupID": "payments",
+    "name": "MyPayga",
+    "url": "https://keri-flow.github.io/components/mypayga.total",
+    "author": "Badinga Ulrich",
+    "icon": "ti ti-money-check-alt",
+    "version": "4",
+    "readme": "The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa."
+  },
+  {
+    "id": "mysql.total",
+    "group": "Databases",
+    "groupID": "databases",
+    "name": "MySQL",
+    "url": "https://keri-flow.github.io/components/mysql.total",
+    "author": "Total.js",
+    "icon": "ti ti-database",
+    "version": "2",
+    "readme": "Execute MySQL Query\n\n## MySQL Query \n```sql\nSELECT * FROM tblname\n```"
+  },
+  {
+    "id": "openweather.total",
+    "group": "Services",
+    "groupID": "services",
+    "name": "OpenWeather",
+    "url": "https://keri-flow.github.io/components/openweather.total",
+    "author": "Total.js",
+    "icon": "ti ti-weather",
+    "version": "1",
+    "readme": "This component can retieve weather data from [OpenWheatherMap](https://openweathermap.org/api/);\n\n__Input__\n```js\n\t{\n\t\tquery: {String},             // Optional, City name, Country code, State code e.g: London, Ouagadougou, sk\n\t\tlon: {String},           // Optional, Longitude\n\t\tlat: {String},           // Optional, Latitude\n\t\tlang: {String},           // Optional, Output language e.g: `en`, `de`, `sk`, `fr` etc...\n\t\tunits: {String},         // Optional, standard, metric, imperial\n\t\tdate: {String},         // Optional,  Timestamp (Unix time, UTC time zone), e.g. date=1586468027.\n\t}\n```"
+  },
+  {
+    "id": "pvit.total",
+    "group": "Payments",
+    "groupID": "payments",
+    "name": "Pvit",
+    "url": "https://keri-flow.github.io/components/pvit.total",
+    "author": "Badinga Ulrich",
+    "icon": "ti ti-coins",
+    "version": "1",
+    "readme": "The component allow your send payments to more than 300 million mobile, bank and card account holders across Africa."
   }
 ]

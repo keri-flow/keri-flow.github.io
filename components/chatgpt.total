@@ -9,7 +9,9 @@
 	exports.config = { model: 'text-davinci-003', apikey: '' };
 	exports.inputs = [{ id: 'input', name: 'Question' }];
 	exports.outputs = [{ id: 'output', name: 'Answer' }, { id: 'error', name: 'Error' }];
-    exports.meta = {readonly: true, remove: false};
+	exports.meta = {readonly: true, remove: false};
+  const SharedMemory = REQUIRE('definitions/shared.js');
+
 	exports.make = function (instance, config) {
 
 		const URL = 'https://api.openai.com/v1/completions';
@@ -19,7 +21,7 @@
 
 		instance.message = async function ($) {
 
-			var data = $.data;
+			var data = SharedMemory.extractData($);
 
 			if (!data) {
 				$.send('error', 'Input text is missing');
@@ -47,7 +49,7 @@
 					break;
 				case 'gpt-3.5-turbo':
 
-					var messages = $.data.messages || $.data;
+					var messages = data.messages || data;
 
 					if (!(messages instanceof Array)) {
 						$.send('error', 'Error: Input must be array of messages');
@@ -77,7 +79,7 @@
 					});
 					break;
 				case 'whisper-1':
-					var path = $.data.path || $.data;
+					var path = data.path || data;
 
 					var url = 'https://api.openai.com/v1/audio/transcriptions';
 					RESTBuilder.POST(url, { model: cfg.model }).header('Authorization', 'Bearer ' + cfg.apikey).file('file', path).timeout(60000).keepalive().callback(function (err, response, output) {

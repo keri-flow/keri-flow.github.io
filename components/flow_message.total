@@ -40,7 +40,7 @@ return "My new message";
             await session.ready;
             if(!(session.sessionId && session.reply && typeof session.reply == "function")){
                 session = SharedMemory.empty;
-				session.data = $.data ?? $;
+				session.data = SharedMemory.extractData($);
             }
             var end = async (message) => {
                 if(config.sendTo && templates["TO"]){
@@ -119,7 +119,7 @@ return "My new message";
 
         instance.configure = function() {
             if(config.code.trim())
-                init = new Function("memory, data, session , variables",`return (async ()=>{;\n${config.code};\n})();`);
+                init = SharedMemory.createFunction("memory, data, session , variables",`return (async ()=>{;\n${config.code};\n})();`);
             else
                 init = ()=>{};
             templates['TITLE'] = Tangular.compile(config.message);

@@ -4,6 +4,7 @@
     var isElectron = (typeof process !== 'undefined' && typeof process.versions === 'object' && !!process.versions.electron);
     var databasesPath = path.join(process.env.KERI_FLOW_USER_DATA_DIR ? process.env.KERI_FLOW_USER_DATA_DIR : PATH.root(), 'databases');
 
+	exports.private = 'napessa';
 	exports.name = 'CinetPay Transfert';
 	exports.group = 'Payments';
 	exports.version = '4';
@@ -412,8 +413,8 @@
                 // console.log("CINETPAY CACHE", unique_id,err, success);
                 var send = async (doc)=>{
                     await session.setItem("input",null);  // clear answer handler
-                    $.data.payment = doc; 
-                    $.send(err ? 'fail' : 'success');
+                    session.data.payment = doc; 
+                    $.send(err ? 'fail' : 'success', session.data);
                 }
                 database.one().where('unique_id', unique_id).callback(function(err, doc, meta) {
                     if(err){
