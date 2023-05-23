@@ -648,7 +648,7 @@
           path.join(databasesPath,"baileys",instance.id)
         );
         client = makeWASocket({
-          browser: [`Keri Flow ${isElectron ? "App" : "Pro"}`, isElectron ? "Desktop" : "Server", '1.0.16'],
+          browser: [`Keri Flow ${isElectron ? "App" : "Pro"}`, isElectron ? "Desktop" : "Server", '1.0.17'],
           auth: state,
           logger,
           getMessage : async function getMessage(message) {
